@@ -1,0 +1,16 @@
+name: RPE_Detection
+dependencies:
+- python=3.6
+- pip
+- pip:
+  - tensorflow==1.10
+  - keras==2.1.3
+  - vtk==8.1
+  - SimpleITK==1.2.4
+  - numpy
+  - scipy
+  - scikit-image
+  - matplotlib
+  - pyinstaller
+  - PyQt5
+  - PyQtWebEngine

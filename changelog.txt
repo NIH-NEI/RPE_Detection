@@ -1,0 +1,29 @@
+#### Version 1.0.1 (2020-10-13) ####
+
+- Change mouse cursor to OpenHand when Shift is pressed, and to MoveAll when scrolling the image
+  with Shift+LeftButton or MiddleButton.
+- Prevent new markers from being added too close to an existing marker (based on tolerance, same as
+  for deleting markers -- if the mouse is close enough to an existing marker as to delete it,
+  a new marker canmnot be added at this location).
+- Up and Down arrows switch between open images (even if the image list does not have focus).
+- The "Detect" dialog displays a list of open images with check boxes, allowing the user to select
+  which images to detect (and replace existing detections). Initially only images that don't have any
+  markers on them are checked, but there is a "V" header to check/uncheck all.
+- A "V" symbol is placed next to image name in the list of open images if there is a matching *.csv
+  file in the same directory as the image (*.tif) file. An image without this mark may actually have
+  some markers on it, but they are not saved.
+- History moved to user's home directory and history entry names (automatic backup) get image file timestamp
+  to resolve potential naming conflicts (two different images with the same name will have different
+  history entries, so no backup annotations are loaded into wrong image).
+- Drag and Drop operations fixed to properly handle *.tif, *.csv, directories or any mixture of them.
+  For example, if you have images and saved detections in the same directory, you can drag and drop this
+  directory to open all of them at once rather than dragging a large list of individual files.
+- Logic handling auto-opening detections changed to pick up history (auto-backup) first, and only if
+  such entry does not exist, try to open accompanying manually saved *.csv file. For example, when you
+  first open a group of images recently copied together with their *.csv detections from a different computer,
+  the *.csv-s are automatically loaded as well, and copied to backup (history). If you make some changes
+  and close the application without saving (or open another group of images, which closes the current one),
+  next time the backup entries will be picked instead, so your unsaved changes are not lost. 
+- A menu command "Show data file locations" (also available via keyboard shortcut Ctrl+L) opens a box
+  showing data file locations for the currently displayed image: the full path to the image *.tif,
+  its manual save *.csv file name (grayed if not yet saved), and the auto-backup (history) file.
