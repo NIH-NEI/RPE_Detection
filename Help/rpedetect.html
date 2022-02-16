@@ -1,0 +1,182 @@
+<html>
+<head>
+<meta http-equiv="content-type" content="text/html; charset=ISO-8859-1">
+<title>RPE Cell Detection Utility (Machine Learning edition)</title>
+<style>
+BODY {
+  FONT-FAMILY: Verdana, Arial, sans-serif;
+}
+div {
+	margin: 4px 0px 4px 8px;
+}
+td, th {
+	text-align: left;
+	padding: 2px 12px 2px 16px;
+	border-bottom: 1px solid #E0E0E0;
+}
+h4 {
+	color: #000055;
+}
+th {
+	color: #555555;
+}
+thead th {
+	background-color: #E0E0E0;
+}
+</style>
+</head>
+<body>
+    <table border="0" width="100%" style="background-color:#EEEEEE;">
+        <tr>
+            <td width="120" style="text-align:center; vertical-align:middle;"><img src="../Icons/RPE_Detection.png"></td>
+            <td style="text-align:left"><h3>RPE Cell Detection utility, Machine Learning edition.</h3></td>
+        </tr>
+    </table>
+
+    <div style="text-align:right;">
+        <a href="https://nei.nih.gov/intramural/translational-imaging">Tam lab</a>&nbsp;<br />
+        <a href="https://nei.nih.gov/">National Eye Institute</a>&nbsp;<br />
+        <a href="https://www.nih.gov/">National Institutes of Health</a>&nbsp;<br />
+    </div>
+
+    <h4 style="text-align:center;">Keyboard Shortcuts and Mouse Operations</h4>
+    <table>
+        <thead>
+            <tr>
+                <th>Key</th>
+                <th>Action</th>
+                <th>Description</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td><b>F1</b></td>
+                <td><img src="../Icons/help.png" width=32 height=32 />&nbsp;Keyboard&nbsp;Shortcuts...</td>
+                <td>Display this help screen.</td>
+            </tr>
+            <tr>
+                <td><b>F2</b></td>
+                <td>Toggle Visibility</td>
+                <td>Temporarily switch off/on marker visibility.
+                Visibility is automatically restored when you open images or detect RPE cells.</td>
+            </tr>
+            <tr>
+                <td><b>F10</b></td>
+                <td>Reset Image View</td>
+                <td>In the &ldquo;Default&rdquo; mouse mode dragging the mouse changes brighness/contrast
+                of the image. Pressing F10 reverts these changes and resets the image display
+                to default settings. Also helpful if you zoom in/out too much or accidentally rotate
+                the image (with <b>Ctrl</b>+left-dragging), and you want the origional view back.</td>
+            </tr>
+            <tr>
+                <td><b>Ctrl+I</b></td>
+                <td>Toggle Interpolation</td>
+                <td>
+                    Togle pixel interpolation for image zoom. If the interpolation is on, a bicubic
+                    resampling is used. Otherwise, nearest neighbor.
+                </td>
+            </tr>
+            <tr>
+                <td><b>Ctrl+O</b></td>
+                <td><img src="../Icons/open.png" width=32 height=32 />&nbsp;Open Images...</td>
+                <td>Open one or more AO Images (.tif) and associated Annotations (.csv).</td>
+            </tr>
+            <tr>
+                <td><b>&nbsp;</b></td>
+                <td><img src="../Icons/open_document1.png" width=32 height=32 />&nbsp;Open Annotations...</td>
+                <td>Open Annotations (.csv). Annotation data is applied to open images with matching file name</td>
+            </tr>
+            <tr>
+                <td><b>Ctrl+S</b></td>
+                <td><img src="../Icons/save.png" width=32 height=32 />&nbsp;Save Annotations...</td>
+                <td>Save RPE detection results of all open images.</td>
+            </tr>
+            <tr>
+                <td><b>&nbsp;</b></td>
+                <td>Delete Annotations</td>
+                <td>Delete all RPE cell markers (annotations) on the current image.</td>
+            </tr>
+            <tr>
+                <td><b>Ctrl+L</b></td>
+                <td>Show data file locations</td>
+                <td>
+                	Displays the &ldquo;Image Data Location&rdquo; box showing full paths to
+                	the currently displayed image, its associated contour spreadsheet in the same directory,
+                	and auto-backup contour spreadsheet. The auto-backup (history) file is updated after
+                	each contour operation, and it is loaded when there is no manually saved spreadsheet
+                	in the image file directory. It prevents your editings from being lost when you
+                	accidentally close the program (or open new images) without saving the data.
+                </td>
+            </tr>
+            <tr>
+                <td><b>Ctrl+G</b></td>
+                <td><img src="../Icons/fovea.png" width=32 height=32 />&nbsp;Detect</td>
+                <td>Display RPE Detection dialog. On this dialog you can adjust detection parameters
+                and choose one or more open images to detect RPE cells on. Note that clicking on the little
+                checkmark &radic; in the table header checks/unchecks all images in the list.</td>
+            </tr>
+
+            <tr>
+                <td><b>Ctrl+M</b></td>
+                <td><img src="../Icons/mouse.png" width=32 height=32 />&nbsp;Default</td>
+                <td>Switch to &ldquo;Default&rdquo; mouse mode. In this mode:<br>
+                	&ndash; Mouse wheel (or <b>Ctrl</b>+right-dragging) zooms in and out;<br>
+                	&ndash; Dragging the mouse changes brightness/contrast;<br>
+                	&ndash; <b>Shift</b>+left-dragging (or middle-dragging) scrolls the image.<br>
+                	&ndash; <b>Ctrl</b>+left-dragging (Windows) rotates the image.
+                </td>
+            </tr>
+            <tr>
+                <td><b>Ctrl+C</b></td>
+                <td><img src="../Icons/draw_point.png" width=32 height=32 />&nbsp;Draw</td>
+                <td>
+                    Switch to &ldquo;Add Markers&rdquo; mouse mode. In this mode:<br>
+                    &ndash; Clicking mouse on the image adds a new marker;<br>
+                	&ndash; Mouse wheel (or <b>Ctrl</b>+right-dragging) zooms in and out;<br>
+                	&ndash; <b>Shift</b>+left-dragging (or middle-dragging) scrolls the image.<br>
+                    &ndash; <b>Ctrl</b>+left click (Windows) or <b>Alt</b>+left click (Mac OS X)
+                    on a marker erases the marker.
+                </td>
+            </tr>
+            <tr>
+                <td><b>Ctrl+E</b></td>
+                <td><img src="../Icons/move_point.png" width=32 height=32 />&nbsp;Move</td>
+                <td>
+                    Switch to &ldquo;Move Markers&rdquo; mouse mode. In this mode:<br>
+                	&ndash; Clicking on a marker and dragging the mouse moves the marker;<br>
+                	&ndash; Mouse wheel (or <b>Ctrl</b>+right-dragging) zooms in and out;<br>
+                    &ndash; <b>Ctrl</b>+left click (Windows) or <b>Alt</b>+left click (Mac OS X)
+                    on a marker erases the marker.<br>
+                	&ndash; <b>Shift</b>+left-dragging (or middle-dragging) scrolls the image.
+                </td>
+            </tr>
+            <tr>
+                <td><b>Ctrl+D</b></td>
+                <td><img src="../Icons/erase.png" width=32 height=32 />&nbsp;Erase&nbsp;M</td>
+                <td>
+                	Switch to &ldquo;Erase Multiple Cone Contours&rdquo; mouse mode. In this mode:<br>
+                	&ndash; Left-dragging the mouse around an area erases all markers inside this area;<br>
+                	&ndash; Mouse wheel (or <b>Ctrl</b>+right dragging) zooms in and out;<br>
+                	&ndash; <b>Shift</b>+left-dragging (or middle-dragging) scrolls the image.
+                </td>
+            </tr>
+            <tr>
+                <td><b>Ctrl+W</b></td>
+                <td><img src="../Icons/erase_point.png" width=32 height=32 />&nbsp;Erase&nbsp;S</td>
+                <td>
+                	Switch to &ldquo;Erase Single RPE Cell Marker&rdquo; mouse mode. In this mode:<br>
+                	&ndash; Left-clicking on a marker erases it;<br>
+                	&ndash; Mouse wheel (or <b>Ctrl</b>+right-dragging) zooms in and out;<br>
+                	&ndash; <b>Shift</b>+left-dragging (or middle-dragging) scrolls the image.
+                </td>
+            </tr>
+            <tr>
+                <td><b>Ctrl+Z</b></td>
+                <td><img src="../Icons/undo.png" width=32 height=32 />&nbsp;Undo</td>
+                <td>Undo the last &ldquo;Add&rdquo;, &ldquo;Move&rdquo; or &ldquo;Erase&rdquo; operation.</td>
+            </tr>
+        </tbody>
+    </table>
+<p>&nbsp;</p>
+</body>
+</html>

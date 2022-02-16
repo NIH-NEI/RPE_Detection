@@ -1,5 +1,8 @@
 import os
 import sys
+import platform
+import enum
+from collections import namedtuple
 import vtk
 from vtk.util import numpy_support
 from vtk.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
@@ -10,8 +13,79 @@ import SimpleITK as sitk
 from AOFileIO import write_points
 import AOConfig as cfg
 
+@enum.unique
+class MouseOp(enum.IntEnum):
+    Normal = 0
+    Add = 1
+    Remove = 2
+    Move = 3
+    EraseMulti = 4
+    
+UndoEntry = namedtuple('UndoEntry', ['m_del', 'm_more', 'pt'])
+class UndoStack(object):
+    def __init__(self, maxundo=1000):
+        self.maxundo = maxundo
+        #
+        self.buf = []
+    #
+    def clear(self):
+        self.buf[:] = []
+    #
+    def is_empty(self):
+        return len(self.buf) == 0
+    #
+    def push_undo(self, pt, m_del=False, m_more=False):
+        self.buf.insert(0, UndoEntry(m_del, m_more, pt))
+        if len(self.buf) > self.maxundo:
+            self.buf[self.maxundo:] = []
+    #
+    def pop_undo(self):
+        if len(self.buf) == 0:
+            return False, False, None
+        ent = self.buf.pop(0)
+        return ent.m_del, ent.m_more, ent.pt
+    #
+
+###### Winding number test for a point in a polygon
+# Adapted from: http://geomalgorithms.com/a03-_inclusion.html
+
+# isLeft(): tests if a point is Left|On|Right of an infinite line.
+#    Input:  three points P0, P1, and P2
+#    Return: >0 for P2 left of the line through P0 and P1
+#            =0 for P2  on the line
+#            <0 for P2  right of the line
+#
+# P1, P2, P3 are lists [x,y] or tuples (x,y)
+def isLeft(P0, P1, P2):
+    return (P1[0]-P0[0])*(P2[1]-P0[1]) - (P2[0]-P0[0])*(P1[1]-P0[1])
+
+# wn_PnPoly(): winding number test for a point in a polygon
+#      Input:   pt = a point, list or tuple (x,y)
+#               poly = vertex points of a polygon, a collection of points, poly[0] == poly[-1]
+#      Return:  wn = the winding number (=0 only when pt is outside)
+def wn_PnPoly(pt, poly):
+    n = len(poly) - 1
+    wn = 0
+    for i in range(n):
+        if poly[i][1] < pt[1]:          # start y <= pt.y
+            if poly[i+1][1] > pt[1]:    # an upward crossing
+                if isLeft(poly[i], poly[i+1], pt) > 0:  # pt left of edge
+                    wn += 1             # have a valid up intersect
+        else:                           # start y > P.y (no test needed)
+            if poly[i+1][1] <= pt[1]:   # a downward crossing
+                if isLeft(poly[i], poly[i+1], pt) < 0:  # pt right of edge
+                    wn -= 1             # have a valid down intersect
+    return wn
+
+def isPointInside(pt, contour):
+    return wn_PnPoly(pt, contour) != 0
+
+###### End of winding number algorithm
+
+
 class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
     def __init__(self, mouse_mode = 0, parent=None):
+        self._win = platform.system().lower() == 'windows'
         self.AddObserver("LeftButtonPressEvent",self.leftButtonPressEvent)
         self.AddObserver("LeftButtonReleaseEvent", self.leftButtonReleaseEvent)
         self.AddObserver("MiddleButtonPressEvent", self.middleButtonPressEvent)
@@ -21,6 +95,7 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
         self.AddObserver("LeaveEvent", self.leaveEvent)
         self.AddObserver("KeyPressEvent", self.keyPressEvent)
         self.AddObserver("KeyReleaseEvent", self.keyReleaseEvent)
+        self.AddObserver("CharEvent", self.charEvent)
 
         self.parent = parent
         self._mouse_mode = mouse_mode
@@ -31,9 +106,23 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
         self._image_origin = None
         self._image_spacing = None
         #
+        self._mouse_down = False
+        self._ctrl_down = False
         self._shift_down = False
+        self._alt_down = False
         self._mouse_scroll = False
         self._mouse_in = False
+        self._contour_pts = []
+        #
+        self.m_idx = -1
+        self.m_xpos = 0
+        self.m_ypos = 0
+        #
+        self.img_dim = None
+        self.last_pick_value = 0
+        #
+        self._undo_stack = UndoStack()
+    #
 
     @staticmethod
     def pt_dist(pt1, pt2):
@@ -71,7 +160,104 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
 
     def set_annotations(self, pts):
         self._annotations = pts
+        
+    def can_add(self, pick):
+        for pt in self._annotations:
+            if self.pt_dist(pt, pick) < self._tolerance:
+                return False
+        return True
+    def find_point(self, pick, delta=0.001):
+        for idx, pt in enumerate(self._annotations):
+            if self.pt_dist(pt, pick) < delta:
+                return idx
+        return -1
+    
+    def closest_border(self, pt):
+        pidx = 0
+        x = 0.
+        y = 0.
+        dx0 = math.fabs(pt[0])
+        dx1 = math.fabs(pt[0] - self.img_dim[0])
+        dy0 = math.fabs(pt[1])
+        dy1 = math.fabs(pt[1] - self.img_dim[1])
+        if dx0 <= dx1 and dx0 <= dy0 and dx0 <= dy1:
+            x = 0.
+            y = pt[1]
+        elif dx1 <= dy0 and dx1 <= dy1:
+            x = float(self.img_dim[0])
+            y = pt[1]
+        elif dy0 <= dy1:
+            x = pt[0]
+            y = 0.
+            pidx = 1
+        else:
+            x = pt[0]
+            y = float(self.img_dim[1])
+            pidx = 1
+        return (x, y, -0.001), pidx
+    def closest_border_2(self, pt):
+        pt1, pidx1 = self.closest_border(pt)
+        if len(self._contour_pts) > 0:
+            pt0, pidx0 = self.closest_border(self._contour_pts[-1])
+            if pidx0 != pidx1:
+                pt2 = [0, 0, -0.001]
+                pt2[pidx0] = pt0[pidx0]
+                pt2[pidx1] = pt1[pidx1]
+                self._contour_pts.append(tuple(pt2))
+        return pt1
 
+    def undo(self):
+        has_more = not self._undo_stack.is_empty()
+        dirty = False
+        while has_more:
+            m_del, has_more, pick = self._undo_stack.pop_undo()
+            if pick is None: break
+            if m_del:
+                if self.can_add(pick):
+                    self._annotations.append(pick)
+                    dirty = True
+            else:
+                idx = self.find_point(pick)
+                if idx >= 0:
+                    del self._annotations[idx]
+                    dirty = True
+        if dirty:
+            self._annotation_pts.Initialize()
+            if len(self._annotations) is not 0:
+                self._annotation_pts.SetData(numpy_support.numpy_to_vtk(np.asarray(self._annotations)))
+            self._annotation_pts.Modified()
+
+            write_points(self._image_name, self._annotations, self._image_origin, self._image_spacing)
+            if not self.parent is None:
+                self.parent.reset_view(False)
+    #
+    def delete_points_inside(self):
+        contour = [(pt[0], pt[1]) for pt in self._contour_pts]
+        if len(contour) < 3: return
+        contour.append(contour[0])
+        annotations = []
+        has_more = False
+        for pt in self._annotations:
+            if isPointInside(pt, contour):
+                self._undo_stack.push_undo(pt, True, has_more)
+                has_more = True
+            else:
+                annotations.append(pt)
+        if has_more:
+            self._annotations[:] = annotations
+            self._annotation_pts.Initialize()
+            if len(self._annotations) is not 0:
+                self._annotation_pts.SetData(numpy_support.numpy_to_vtk(np.asarray(self._annotations)))
+            self._annotation_pts.Modified()
+            #
+            write_points(self._image_name, self._annotations, self._image_origin, self._image_spacing)
+    #
+
+    def _GetControlKey(self):
+        # Check for either Ctrl or Alt (Ctrl+mouse does not work on Mac)
+        if self.GetInteractor().GetControlKey():
+            return True
+        return not self._win and self._alt_down
     def leftButtonPressEvent(self, obj, event):
         while QtWidgets.QApplication.overrideCursor():
             QtWidgets.QApplication.restoreOverrideCursor()
@@ -79,57 +265,152 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
             self._shift_down = False
             obj.OnLeftButtonDown()
             return
+        inter = self.GetInteractor()
         self._mouse_scroll = False
-        if self.GetInteractor().GetShiftKey():
+        if inter.GetShiftKey():
             self._shift_down = self._mouse_scroll = True
             QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.SizeAllCursor)
             obj.OnLeftButtonDown()
             return
+        
+        self.img_dim = self.parent.get_image_dimensions()
+        self._contour_pts = []
+        self._mouse_down = True
+        op = self._mouse_mode
+        if self._GetControlKey() and op in (MouseOp.Add, MouseOp.Move):
+            op = MouseOp.Remove
+            self._ctrl_down = True
+            QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CrossCursor)
             
-        # Add small negative value (-0.001) to Z-coordinate to make annotation
-        # closer to the camera
-        pick_value = self.GetInteractor().GetPicker().Pick(self.GetInteractor().GetEventPosition()[0],
-                                                           self.GetInteractor().GetEventPosition()[1],
-                                                           -0.001, self.GetDefaultRenderer())
-        pick_pos = self.GetInteractor().GetPicker().GetPickPosition()
-        if self._mouse_mode != 0 and pick_value == 1:
-            old_len = len(self._annotations)
-            if self._mouse_mode == 1:
-                #append a point
-                for pt in self._annotations:
-                    if self.pt_dist(pt, pick_pos) < self._tolerance:
-                        break
-                else:
+        mx, my = inter.GetEventPosition()
+        pick_value = inter.GetPicker().Pick(mx, my, -0.001, self.GetDefaultRenderer())
+        if op in (MouseOp.Add, MouseOp.Move, MouseOp.Remove, MouseOp.EraseMulti):
+            if pick_value == 0:
+                return
+            pick_pos = self.GetInteractor().GetPicker().GetPickPosition()
+            dirty_ann = False
+            dirty_cont = False
+            if op == MouseOp.Add:
+                # Add point
+                if self.can_add(pick_pos):
                     self._annotations.append(pick_pos)
-            elif self._mouse_mode == 2:
-                #erase a point
-                for idx, pt in enumerate(self._annotations):
-                    if self.pt_dist(pt, pick_pos) < self._tolerance:
-                        del self._annotations[idx]
-                        break
-            #
-            if len(self._annotations) != old_len:
+                    self._undo_stack.push_undo(pick_pos, False, False)
+                    dirty_ann = True
+            elif op == MouseOp.Remove:
+                # Remove point
+                idx = self.find_point(pick_pos, self._tolerance)
+                if idx >= 0:
+                    self._undo_stack.push_undo(self._annotations[idx], True, False)
+                    del self._annotations[idx]
+                    dirty_ann = True
+            elif op == MouseOp.Move:
+                self.m_idx = self.find_point(pick_pos, self._tolerance)
+                if self.m_idx >= 0:
+                    pt = self._annotations[self.m_idx]
+                    self.m_xpos = pt[0]
+                    self.m_ypos = pt[1]
+            elif op == MouseOp.EraseMulti and not self.parent is None:
+                self.last_pick_value = pick_value
+                self._contour_pts = [pick_pos]
+                dirty_cont = True
+            
+            if dirty_ann:
                 self._annotation_pts.Initialize()
                 if len(self._annotations) is not 0:
                     self._annotation_pts.SetData(numpy_support.numpy_to_vtk(np.asarray(self._annotations)))
                 self._annotation_pts.Modified()
-    
                 write_points(self._image_name, self._annotations, self._image_origin, self._image_spacing)
-                if not self.parent is None:
-                    self.parent.reset_view(False)
+            if dirty_cont:
+                self.parent.set_interactive_contour(self._contour_pts)
+            if not self.parent is None and (dirty_ann or dirty_cont):
+                self.parent.reset_view(False)
             return
-
+        #
         obj.OnLeftButtonDown()
     #
     def leftButtonReleaseEvent(self, obj, event):
+        self._mouse_down = False
         while QtWidgets.QApplication.overrideCursor():
             QtWidgets.QApplication.restoreOverrideCursor()
         if self._mouse_scroll:
             self._mouse_scroll = False
             if self._shift_down:
                 QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.OpenHandCursor)
+            obj.OnLeftButtonUp()
+            return
+        inter = self.GetInteractor()
+        op = self._mouse_mode
+        if self._GetControlKey() and op in (MouseOp.Add, MouseOp.Move):
+            op = MouseOp.Remove
+            self._ctrl_down = True
+            QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CrossCursor)
+        if op == MouseOp.Remove:
+            return
+        if op in (MouseOp.Move, MouseOp.EraseMulti):
+            mx, my = inter.GetEventPosition()
+            pick_value = inter.GetPicker().Pick(mx, my, 0, self.GetDefaultRenderer())
+            pick_pos = inter.GetPicker().GetPickPosition()
+            if op == MouseOp.EraseMulti:
+                if pick_value == 0 and len(self._contour_pts) > 0:
+                    pt = self.closest_border_2(self._contour_pts[0])
+                    pick_value = 1
+                if pick_value == 0: return
+                self._contour_pts.append(pick_pos)
+                self.delete_points_inside()
+                if self.parent is None: return
+                self.parent.set_interactive_contour(None)
+                self.parent.reset_view(False)
+            elif op == MouseOp.Move and self.m_idx >= 0:
+                pt = self._annotations[self.m_idx]
+                old_pt = (self.m_xpos, self.m_ypos, -0.0001)
+                if self.pt_dist(pt, old_pt) >= 0.001:
+                    self._undo_stack.push_undo(old_pt, True, False)
+                    self._undo_stack.push_undo(pt, False, True)
+                    self._annotation_pts.Initialize()
+                    self._annotation_pts.SetData(numpy_support.numpy_to_vtk(np.asarray(self._annotations)))
+                    self._annotation_pts.Modified()
+                    write_points(self._image_name, self._annotations, self._image_origin, self._image_spacing)
+                    if not self.parent is None:
+                        self.parent.reset_view(False)
+            return
         obj.OnLeftButtonUp()
+    #
     def mouseMoveEvent(self, obj, event):
+        if self._shift_down:
+            obj.OnMouseMove()
+            return
+        if self._mouse_down:
+            inter = self.GetInteractor()
+            op = self._mouse_mode
+            if op in (MouseOp.Move, MouseOp.EraseMulti):
+                mx, my = inter.GetEventPosition()
+                pick_value = inter.GetPicker().Pick(mx, my, 0, self.GetDefaultRenderer())
+                pick_pos = inter.GetPicker().GetPickPosition()
+                if op == MouseOp.Move and pick_value != 0 and self.m_idx >= 0:
+                    self._annotations[self.m_idx] = pick_pos
+                    self._annotation_pts.Initialize()
+                    self._annotation_pts.SetData(numpy_support.numpy_to_vtk(np.asarray(self._annotations)))
+                    self._annotation_pts.Modified()
+                    if not self.parent is None:
+                        self.parent.reset_view(False)
+                elif op == MouseOp.EraseMulti:
+                    dirty = False
+                    if pick_value == 0:
+                        if self.last_pick_value != 0 and len(self._contour_pts) > 0:
+                            pt, _ = self.closest_border(self._contour_pts[-1])
+                            self._contour_pts.append(pt)
+                            dirty = True
+                    else:
+                        dirty = True
+                        if self.last_pick_value == 0:
+                            pt = self.closest_border_2(pick_pos)
+                            self._contour_pts.append(pt)
+                        self._contour_pts.append(pick_pos)
+                    self.last_pick_value = pick_value
+                    if dirty and not self.parent is None:
+                        self.parent.set_interactive_contour(self._contour_pts)
+                        self.parent.reset_view(False)
+                return
         obj.OnMouseMove()
     def middleButtonPressEvent(self, obj, event):
         while QtWidgets.QApplication.overrideCursor():
@@ -158,18 +439,27 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
             # Like the user tried to drag the mouse from another widget while holding Shift down.
             self._shift_down = False
         obj.OnEnter()
+    def charEvent(self, obj, event):
+        key = self.GetInteractor().GetKeyCode()
+        if key in 'xXyYzZrRwWfFpP':
+            return
+        obj.OnChar()
     def leaveEvent(self, obj, event):
         self._mouse_in = False
+        self._alt_down = False
         while QtWidgets.QApplication.overrideCursor():
             QtWidgets.QApplication.restoreOverrideCursor()
         obj.OnLeave()
     def keyPressEvent(self, obj, event):
         while QtWidgets.QApplication.overrideCursor():
             QtWidgets.QApplication.restoreOverrideCursor()
+        key = self.GetInteractor().GetKeySym()
+        if key == 'Alt_L':
+            self._alt_down = True
+            if not self._win: key = 'Control_L'
         if not self._mouse_in:
             obj.OnKeyPress()
             return
-        key = self.GetInteractor().GetKeySym()
         if key == 'Up':
             cfg.main_wnd.previous_image()
             return
@@ -180,26 +470,40 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
             self._shift_down = True
             if not self._mouse_scroll:
                 QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.OpenHandCursor)
-        obj.OnKeyPress()
+        elif key == 'Control_L':
+            if self._mouse_mode in (MouseOp.Add, MouseOp.Move):
+                self._ctrl_down = True
+                QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CrossCursor)
+                return
+        if not self._alt_down:
+            obj.OnKeyPress()
     def keyReleaseEvent(self, obj, event):
         while QtWidgets.QApplication.overrideCursor():
             QtWidgets.QApplication.restoreOverrideCursor()
         key = self.GetInteractor().GetKeySym()
+        if key == 'Alt_L':
+            self._alt_down = False
+            if not self._win: key = 'Control_L'
         if key == 'Up' or key == 'Down':
             return
+        if self._ctrl_down:
+            if key == 'Control_L':
+                self._ctrl_down = False
+                return
         if key == 'Shift_L':
             self._shift_down = False
         obj.OnKeyRelease()
     #
-
 
 class ao_visualization(object):
     def __init__(self, vtk_widget, mouse_mode):
         self._vtk_widget = vtk_widget
         self._draw_image()
 
+        self._interactive_contour_width = 3
         self._annotation_size = 12
         self._draw_annotations()
+        self._draw_interactive_contours()
 
         # scalarbar = vtk.vtkScalarBarActor()
         # scalarbar.SetLookupTable(self._prob_lut)
@@ -208,6 +512,7 @@ class ao_visualization(object):
         self._render = vtk.vtkRenderer()
         self._render.AddActor(self._image_actor)
         self._render.AddActor(self._annotated_actor)
+        self._render.AddActor(self._interactive_contour_actor)
         self._render.ResetCamera()
 
         self._vtk_widget.GetRenderWindow().AddRenderer(self._render)
@@ -255,12 +560,33 @@ class ao_visualization(object):
         self._annotated_actor.SetMapper(self._annotated_mapper)
         self._annotated_actor.GetProperty().SetColor(0, 1, 0)
 
+    def _draw_interactive_contours(self):
+        self._interactive_contour_points = vtk.vtkPoints()
+        self._interactive_contour_points.SetDataTypeToFloat()
+        self._interactive_contour_lines = vtk.vtkCellArray()
+        self._interactive_contour_poly = vtk.vtkPolyData()
+        self._interactive_contour_poly.SetPoints(self._interactive_contour_points)
+        self._interactive_contour_poly.SetLines(self._interactive_contour_lines)
+
+        self._interactive_contour_mapper = vtk.vtkPolyDataMapper()
+        self._interactive_contour_mapper.SetInputData(self._interactive_contour_poly)
+        self._interactive_contour_mapper.ScalarVisibilityOff()
+
+        self._interactive_contour_actor = vtk.vtkActor()
+        self._interactive_contour_actor.SetMapper(self._interactive_contour_mapper)
+        self._interactive_contour_actor.GetProperty().SetColor(217/255.0, 95.0/255.0, 14.0/255.0)
+        self._interactive_contour_actor.GetProperty().SetLineWidth(self._interactive_contour_width)
+
     def initialization(self):
         self._image_data.Initialize()
         self._image_data.Modified()
 
         self._annotated_points.Initialize()
         self._annotated_poly.Modified()
+
+        self._interactive_contour_points.Initialize()
+        self._interactive_contour_lines.Initialize()
+        self._interactive_contour_poly.Modified()
 
     def _change_camera_orientation(self):
         self._render.ResetCamera()
@@ -280,6 +606,21 @@ class ao_visualization(object):
     def reset_color(self):
         self._image_actor.GetProperty().SetColorLevel(127.5)
         self._image_actor.GetProperty().SetColorWindow(255.)
+        self._vtk_widget.GetRenderWindow().Render()
+        
+    @property
+    def color_info(self):
+        p = self._image_actor.GetProperty()
+        return (p.GetColorLevel(), p.GetColorWindow())
+    @color_info.setter
+    def color_info(self, v):
+        try:
+            cval, cwin = v
+        except Exception:
+            cval = 127.5
+            cwin = 255.
+        self._image_actor.GetProperty().SetColorLevel(cval)
+        self._image_actor.GetProperty().SetColorWindow(cwin)
         self._vtk_widget.GetRenderWindow().Render()
 
     def set_mouse_mode(self, mouse_mode):
@@ -306,6 +647,12 @@ class ao_visualization(object):
         self._convert_nparray_to_vtk_image(itk_img, self._image_data)
         self._style.tolerance = 6*(itk_img.GetSpacing()[0]+itk_img.GetSpacing()[1])
         self._image_data.Modified()
+        self._style._undo_stack.clear()
+        
+    def get_image_dimensions(self):
+        s = self._image_data.GetSpacing()
+        d = self._image_data.GetDimensions()
+        return (s[0]*d[0], s[1]*d[1], 1.)
 
     def set_annotations(self, pts):
         self._style.set_annotations(pts)
@@ -316,6 +663,13 @@ class ao_visualization(object):
         # for id, pt in enumerate(pts):
         #     self._annotated_points.SetPoint(id, pt[0], pt[1], 0)
         self._annotated_points.Modified()
+        self._style._undo_stack.clear()
+        
+    def is_undo_empty(self):
+        return self._style._undo_stack.is_empty()
+    
+    def undo(self):
+        self._style.undo()
 
     def set_image_name(self, img_name):
         self._style.set_image_name(img_name)
@@ -331,3 +685,18 @@ class ao_visualization(object):
         self._annotation_size = size
         self._annotated_glyph_source.SetScale(self._annotation_size)
 
+    def set_interactive_contour(self, pts=None):
+        self._interactive_contour_points.Initialize()
+        self._interactive_contour_lines.Initialize()
+
+        if not pts is None:
+            self._interactive_contour_points.SetNumberOfPoints(len(pts))
+            self._interactive_contour_lines.InsertNextCell(len(pts))
+            for i, pt in enumerate(pts):
+                self._interactive_contour_points.SetPoint(i, pt[0], pt[1], -0.001)
+                self._interactive_contour_lines.InsertCellPoint(i)
+
+        self._interactive_contour_points.Modified()
+        self._interactive_contour_lines.Modified()
+        self._interactive_contour_poly.Modified()
+    #

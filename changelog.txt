@@ -1,3 +1,13 @@
+#### Version 1.1.0 (2022-02-15) ####
+- Added "About" box and Help->Keyboard Shortcuts menu commands.
+- Added "Move" and "Erase Multiple" mouse modes.
+- Added "Undo" for Add/Delete/ERase operations.
+- Drag and drop sets the default output directory to where images were dragged from.
+- Added File->Delete All menu to erase all annotations on the current image
+- Ctrl+Left Click in Add/Move mouse modes erases markers
+- Brightness/Contrast is adjusted separately on each image and not carried over to other images.
+- Keyboard shortcuts and menu/toolbar actions made consistent with other applications.
+
 #### Version 1.0.1 (2020-10-13) ####
 
 - Change mouse cursor to OpenHand when Shift is pressed, and to MoveAll when scrolling the image

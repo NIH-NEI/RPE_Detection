@@ -12,6 +12,7 @@ import SimpleITK as sitk
 import numpy as np
 from keras.preprocessing.image import load_img
 import AOImageView
+from AOImageView import MouseOp
 import AOFileIO
 import AOMethod
 import AOSettingsDialog
@@ -20,9 +21,46 @@ from AOSettingsDialog import ao_progress_dialog, ao_loc_dialog
 from AOSettingsDialog import display_error, display_warning
 import AOConfig as cfg
 
-ICONS_DIR = os.path.join(os.path.dirname(__file__), 'Icons')
+BASE_DIR = os.path.dirname(__file__)
+ICONS_DIR = os.path.join(BASE_DIR, 'Icons')
+HELP_DIR = os.path.join(BASE_DIR, 'Help')
 def qt_icon(name):
     return QtGui.QIcon(os.path.join(ICONS_DIR, name))
+
+_big_icon = QtCore.QUrl.fromLocalFile(os.path.join(ICONS_DIR, 'RPE_Detection256x256.png'))
+about_html = '''
+<table><tr>
+<td><img src="%s">&nbsp;&nbsp;</td>
+<td><b>%s %s</b><div>
+Tam lab<br>
+National Eye Institute<br>
+National Institutes of Health</div><div><br>
+RPE Cell Detection (Machine Learning edition)<br><br>
+<i>Jianfei Liu (NEI/NIH), Andrei Volkov (NEI/NIH Contractor), and Johnny Tam (NEI/NIH),<br>
+with research support from the Intramural Research Program<br>
+of the National Institutes of Health.</i>
+</td></tr></table>
+''' % (_big_icon.url(), cfg.APP_NAME, cfg.APP_VERSION)
+#
+class AboutDialog(QtWidgets.QDialog):
+    def __init__(self, parent=None):
+        super(AboutDialog, self).__init__(parent)
+        self.setWindowFlags(self.windowFlags() & ~QtCore.Qt.WindowContextHelpButtonHint)
+        #self.setSizeGripEnabled(True)
+        self.setWindowIcon(qt_icon('about.png'))
+        self.setWindowTitle('About '+cfg.APP_NAME)
+        #
+        layout = QtWidgets.QVBoxLayout()
+        lbl = QtWidgets.QLabel(about_html)
+        lbl.setTextFormat(QtCore.Qt.RichText)
+        #
+        buttonbox = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok)
+        buttonbox.accepted.connect(self.close)
+        #
+        layout.addWidget(lbl)
+        layout.addWidget(buttonbox)
+        self.setLayout(layout)
+#
 
 def display_error(err, ex):
     msg = QtWidgets.QMessageBox()
@@ -34,10 +72,33 @@ def display_error(err, ex):
     msg.setInformativeText(str(ex))
     msg.setWindowTitle(err)
     msg.exec_()
+#
+    
+def askYesNo(title, text, detail=None):
+    b = QtWidgets.QMessageBox()
+    b.setIcon(QtWidgets.QMessageBox.Question)
+    b.setWindowTitle(title)
+    b.setText(text)
+    if detail:
+         b.setInformativeText(detail)
+    #
+    b.setStandardButtons(QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
+    b.setDefaultButton(QtWidgets.QMessageBox.Yes)
+    #
+    geom = QtWidgets.QApplication.primaryScreen().geometry()
+    spacer = QtWidgets.QSpacerItem(geom.width()*20//100, 1,
+            QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Minimum)
+    l = b.layout()
+    l.addItem(spacer, l.rowCount(), 0, 1, l.columnCount())
+    #
+    return b.exec_() == QtWidgets.QMessageBox.Yes
+#
 
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self, parent=None):
         super(MainWindow, self).__init__(parent)
+
+        self.setWindowIcon(qt_icon('RPE_Detection.png'))
 
         cfg.main_wnd = self
 
@@ -46,6 +107,7 @@ class MainWindow(QtWidgets.QMainWindow):
             'RPE image names': [],
             'RPE images': [],
             'RPE annotations': [],
+            'colors': [],
         }
         self._cur_img_id = -1
         self.loadDir = QtCore.QDir.home()
@@ -60,11 +122,11 @@ class MainWindow(QtWidgets.QMainWindow):
         #create backup directory
         self.hist = cfg.HistoryManager(self.state_dir, suffix='.csv', retention_days=365)
             
-        self._mouse_status = 0
+        self._mouse_status = MouseOp.Normal
 
         self.setWindowTitle(cfg.APP_NAME+' ver. '+cfg.APP_VERSION)
         geom = QtWidgets.QApplication.primaryScreen().geometry()
-        self.setMinimumSize(geom.width()/2, geom.height()*2/3)
+        self.setMinimumSize(geom.width()*60//100, geom.height()*2//3)
         
         self._setup_layout()
         self._setup_menu()
@@ -135,7 +197,7 @@ class MainWindow(QtWidgets.QMainWindow):
         csv_filenames = flist.get_files('.csv')
         strict = False
         if len(img_filenames) > 0:
-            self._open_image_list(img_filenames)
+            self._open_image_list(img_filenames, True)
             strict = True
         if len(csv_filenames) > 0:
             self._open_annotation_list(csv_filenames, strict)
@@ -145,6 +207,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._input_data['RPE image names'].clear()
         self._input_data['RPE images'].clear()
         self._input_data['RPE annotations'].clear()
+        self._input_data['colors'].clear()
 
     def _setup_layout(self):
         frame = Qt.QFrame()
@@ -168,17 +231,22 @@ class MainWindow(QtWidgets.QMainWindow):
         self.show()
 
     def _setup_menu(self):
-        open_image = QtWidgets.QAction('Open...', self, shortcut=QtGui.QKeySequence.Open,
+        self.open_image_act = QtWidgets.QAction('Open Images...', self, shortcut=QtGui.QKeySequence.Open,
                                       icon=qt_icon('open'),
-                                      statusTip='Open RPE images/annotations', triggered=self._open_images)
+                                      statusTip='Open RPE images/annotations',
+                                      triggered=self._open_images)
 
-        open_annotation = QtWidgets.QAction('Open...', self, shortcut=QtGui.QKeySequence.Open,
+        self.open_annotation_act = QtWidgets.QAction('Open Annotations...', self,
                                        icon=qt_icon('open_document1'),
                                        statusTip='Open RPE annotations', triggered=self._open_annotations)
 
-        save_data = QtWidgets.QAction('Save...', self, shortcut=QtGui.QKeySequence.Save,
+        self.save_data_act = QtWidgets.QAction('Save Annotations...', self, shortcut=QtGui.QKeySequence.Save,
                                       icon=qt_icon('save'),
                                       statusTip='Save RPE annotations', triggered=self._save_data)
+
+        self.delete_all_act = QtWidgets.QAction('Delete Annotations', self,
+                                      statusTip='Delete all RPE annotations on current image', triggered=self._delete_all)
+
         quit = QtWidgets.QAction('Exit', self, shortcut=QtGui.QKeySequence.Quit,
                                  statusTip="Quit the application",
                                  triggered=self._quit)
@@ -188,8 +256,8 @@ class MainWindow(QtWidgets.QMainWindow):
                     statusTip='Toggle Annotation Visibility (F2)',
                     triggered=self._toggle_visibility)
 
-        self.reset_brightness_contrast = QtWidgets.QAction('Reset Brightness/Contrast', self, shortcut='F10',
-                    statusTip='Reset Original Image Brightness/Contrast',
+        self.reset_brightness_contrast = QtWidgets.QAction('Reset Image View', self, shortcut='F10',
+                    statusTip='Reset Image View to the original size, position, brightness/contrast, etc.',
                     triggered=self._reset_brightness_contrast)
 
         self.data_loc_act = QtWidgets.QAction('Show data file locations', self, shortcut='Ctrl+L',
@@ -197,9 +265,11 @@ class MainWindow(QtWidgets.QMainWindow):
                     triggered=self._show_data_locations)
 
         file_menu = self.menuBar().addMenu("&File")
-        file_menu.addAction(open_image)
-        file_menu.addAction(open_annotation)
-        file_menu.addAction(save_data)
+        file_menu.addAction(self.open_image_act)
+        file_menu.addAction(self.open_annotation_act)
+        file_menu.addAction(self.save_data_act)
+        file_menu.addSeparator()
+        file_menu.addAction(self.delete_all_act)
         file_menu.addSeparator()
         file_menu.addAction(quit)
         
@@ -208,6 +278,19 @@ class MainWindow(QtWidgets.QMainWindow):
         view_menu.addAction(self.reset_brightness_contrast)
         view_menu.addSeparator()
         view_menu.addAction(self.data_loc_act)
+
+        self.about_act = QtWidgets.QAction('About', self,
+                    icon=qt_icon('about'),
+                    triggered=self._display_about)
+        self.help_act = QtWidgets.QAction('Keyboard Shortcuts...', self, shortcut='F1',
+                    icon=qt_icon('help'),
+                    toolTip='Display list of keyboard shortcuts',
+                    statusTip='Display list of keyboard shortcuts',
+                    triggered=self._display_help)
+        
+        help_menu = self.menuBar().addMenu("&Help")
+        help_menu.addAction(self.about_act)
+        help_menu.addAction(self.help_act)
 
         self._next_image_act = QtWidgets.QAction('NextImage', self,
                     shortcut='Down', triggered=self.next_image)
@@ -228,66 +311,65 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _setup_toolbar(self):
         settings_bar = self.addToolBar("Settings")
+        settings_bar.setToolButtonStyle(QtCore.Qt.ToolButtonTextUnderIcon)
+        
         open_image_button = QtWidgets.QToolButton()
-        open_image_button.setToolTip("Open training data")
-        open_image_button.setIcon(qt_icon('open'))
-        open_image_button.setText("Images")
         open_image_button.setToolButtonStyle(QtCore.Qt.ToolButtonTextUnderIcon)
-        open_image_button.clicked.connect(self._open_images)
+        open_image_button.setDefaultAction(self.open_image_act)
+        open_image_button.setText("Images")
+        open_image_button.setToolTip("Open RPE Images/Annotations (Ctrl+O)")
 
         open_annotation_button = QtWidgets.QToolButton()
-        open_annotation_button.setToolTip("Open annotation data")
-        open_annotation_button.setIcon(qt_icon('open_document1'))
-        open_annotation_button.setText("Points")
         open_annotation_button.setToolButtonStyle(QtCore.Qt.ToolButtonTextUnderIcon)
-        open_annotation_button.clicked.connect(self._open_annotations)
+        open_annotation_button.setDefaultAction(self.open_annotation_act)
+        open_annotation_button.setText("Points")
+        open_annotation_button.setToolTip("Open RPE Annotations")
 
         save_data_button = QtWidgets.QToolButton()
-        save_data_button.setToolTip("Save segmentation results")
-        save_data_button.setIcon(qt_icon('save'))
-        save_data_button.setText("Save")
         save_data_button.setToolButtonStyle(QtCore.Qt.ToolButtonTextUnderIcon)
-        save_data_button.clicked.connect(self._save_data)
+        save_data_button.setDefaultAction(self.save_data_act)
+        save_data_button.setText("Save")
+        save_data_button.setToolTip("Save RPE Annotations (Ctrl+S)")
 
-        detect_button = QtWidgets.QToolButton()
-        detect_button.setToolTip("Detect RPE cells")
-        detect_button.setIcon(qt_icon('fovea'))
-        detect_button.setText("Detect")
-        detect_button.setToolButtonStyle(QtCore.Qt.ToolButtonTextUnderIcon)
-        detect_button.clicked.connect(self._detect_RPE_cells)
+        settings_bar.addWidget(open_image_button)
+        settings_bar.addWidget(open_annotation_button)
+        settings_bar.addWidget(save_data_button)
+        settings_bar.addSeparator()
 
-        draw_button_group = QtWidgets.QButtonGroup(settings_bar)
-        draw_button_group.setExclusive(True)
-        mouse_button = QtWidgets.QToolButton(self)
-        mouse_button.setToolTip('Reset to mouse mode')
-        mouse_button.setIcon(qt_icon('mouse'))
-        mouse_button.setText("Mouse")
-        mouse_button.setCheckable(True)
-        mouse_button.setChecked(True)
-        mouse_button.setToolButtonStyle(QtCore.Qt.ToolButtonTextUnderIcon)
-        mouse_button.clicked.connect(self._set_mouse_model)
+        # Mouse Op button group
+        mouse_group = QtWidgets.QActionGroup(self)
+        default_act = QtWidgets.QAction('Default', mouse_group, shortcut='Ctrl+M',
+                icon=qt_icon('mouse'), toolTip='Default Mouse Mode (Ctrl+M)',
+                checkable=True, checked=True,
+                triggered=lambda: self._set_mouse_mode(MouseOp.Normal))
+        settings_bar.addAction(default_act)
+        add_act = QtWidgets.QAction('Add', mouse_group, shortcut='Ctrl+C',
+                icon=qt_icon('draw_point'), toolTip='Mouse click adds a marker (Ctrl+C)',
+                checkable=True, checked=False,
+                triggered=lambda: self._set_mouse_mode(MouseOp.Add))
+        settings_bar.addAction(add_act)
+        move_act = QtWidgets.QAction('Move', mouse_group, shortcut='Ctrl+E',
+                icon=qt_icon('move_point'), toolTip='Dragging mouse moves a marker (Ctrl+E)',
+                checkable=True, checked=False,
+                triggered=lambda: self._set_mouse_mode(MouseOp.Move))
+        settings_bar.addAction(move_act)
+        erase_multi_act = QtWidgets.QAction('Erase M', mouse_group, shortcut='Ctrl+D',
+                icon=qt_icon('erase'), toolTip='Draw a contour to erase all markers inside (Ctrl+D)',
+                checkable=True, checked=False,
+                triggered=lambda: self._set_mouse_mode(MouseOp.EraseMulti))
+        settings_bar.addAction(erase_multi_act)
+        erase_single_act = QtWidgets.QAction('Erase S', mouse_group, shortcut='Ctrl+W',
+                icon=qt_icon('erase_point'), toolTip='Mouse click erases a marker (Ctrl+W)',
+                checkable=True, checked=False,
+                triggered=lambda: self._set_mouse_mode(MouseOp.Remove))
+        settings_bar.addAction(erase_single_act)
+        settings_bar.addSeparator()
 
-        add_button = QtWidgets.QToolButton(self)
-        add_button.setToolTip('Add annotation')
-        add_button.setIcon(qt_icon('draw_point'))
-        add_button.setText("Add")
-        add_button.setCheckable(True)
-        add_button.setChecked(False)
-        add_button.setToolButtonStyle(QtCore.Qt.ToolButtonTextUnderIcon)
-        add_button.clicked.connect(self._set_add_annotation)
-
-        erase_button = QtWidgets.QToolButton(self)
-        erase_button.setToolTip('Erase annotation')
-        erase_button.setIcon(qt_icon('erase_point'))
-        erase_button.setText("Erase")
-        erase_button.setCheckable(True)
-        erase_button.setChecked(False)
-        erase_button.setToolButtonStyle(QtCore.Qt.ToolButtonTextUnderIcon)
-        erase_button.clicked.connect(self._set_erase_annotation)
-
-        draw_button_group.addButton(mouse_button)
-        draw_button_group.addButton(add_button)
-        draw_button_group.addButton(erase_button)
+        self.undo_act = QtWidgets.QAction('Undo', self, shortcut='Ctrl+Z',
+                icon=qt_icon('undo'),
+                toolTip='Undo last Add, Move or Erase operation (Ctrl+Z)', 
+                triggered=self._undo)
+        settings_bar.addAction(self.undo_act)
 
         detection_setup_group = QtWidgets.QGroupBox()
         detection_setup_layout = QtWidgets.QGridLayout()
@@ -307,19 +389,45 @@ class MainWindow(QtWidgets.QMainWindow):
         detection_setup_layout.addWidget(self._annotation_size_input, 1, 1)
         detection_setup_group.setLayout(detection_setup_layout)
 
-        settings_bar.addWidget(open_image_button)
-        settings_bar.addWidget(open_annotation_button)
-        settings_bar.addWidget(save_data_button)
-        settings_bar.addSeparator()
-        settings_bar.addWidget(mouse_button)
-        settings_bar.addWidget(add_button)
-        settings_bar.addWidget(erase_button)
-        settings_bar.addSeparator()
         settings_bar.addWidget(detection_setup_group)
         settings_bar.addSeparator()
-        settings_bar.addWidget(detect_button)
+
+        self.detect_act = QtWidgets.QAction('Detect', self, shortcut='Ctrl+G',
+                icon=qt_icon('fovea'),
+                toolTip='Detect RPE cells (Ctrl+G)', 
+                triggered=self._detect_RPE_cells)
+        settings_bar.addAction(self.detect_act)
     #
-    def _open_image_list(self, img_filenames):
+    def _display_about(self):
+        dlg = AboutDialog(self)
+        dlg.exec()
+    #
+    def _display_help(self):
+        self.helpWindow = helpWindow = QtWidgets.QWidget()
+        helpWindow.setWindowTitle(cfg.APP_NAME)
+        helpWindow.setWindowIcon(qt_icon('help'))
+        
+        layout = Qt.QVBoxLayout()
+        helpWindow.setLayout(layout)
+        
+        helpBrowser = QtWidgets.QTextBrowser()
+        helpBrowser.setOpenExternalLinks(True)
+        layout.addWidget(helpBrowser)
+        
+        helpFile = os.path.join(HELP_DIR, 'rpedetect.html')
+        if os.path.isfile(helpFile):
+            url = QtCore.QUrl.fromLocalFile(helpFile)
+            helpBrowser.setSource(url)
+        else:
+            helpBrowser.setText("Sorry, no help available at this time.")
+        
+        geom = QtWidgets.QApplication.primaryScreen().geometry()
+        helpWindow.setMinimumSize(geom.width() * 60 // 100, geom.height() * 56 // 100)
+        helpWindow.move(geom.width() * 20 // 100, geom.height() * 14 // 100)
+        
+        helpWindow.showNormal()
+    #
+    def _open_image_list(self, img_filenames, save_state=False):
         img_dir = None
         if len(img_filenames) == 0:
             return
@@ -334,6 +442,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._input_data['RPE images'].append(itk_img)
             self._input_data['RPE image file paths'].append(img_name)
             self._input_data['RPE image names'].append(os.path.splitext(os.path.basename(img_name))[0])
+            self._input_data['colors'].append((127.5, 255.))
 
             if img_dir is None:
                 img_dir = os.path.abspath(os.path.dirname(img_name))
@@ -369,6 +478,10 @@ class MainWindow(QtWidgets.QMainWindow):
         #
         if img_dir is None:
             img_dir = ''
+        elif save_state:
+            self.saveDir = self.loadDir = QtCore.QDir(img_dir)
+            self.saveState()
+            
         self._status_bar.showMessage(img_dir)
     #
     def _open_images(self):
@@ -464,6 +577,8 @@ class MainWindow(QtWidgets.QMainWindow):
         if self._file_list.currentRow() > 0:
             self._file_list.setCurrentRow(self._file_list.currentRow() - 1)
     def _file_list_row_changed(self, newrow):
+        if self._cur_img_id >= 0:
+            self._input_data['colors'][self._cur_img_id] = self._image_view.color_info
         self._cur_img_id = newrow
         self._display_image(self._cur_img_id)
     #
@@ -475,6 +590,7 @@ class MainWindow(QtWidgets.QMainWindow):
         history_file_name = self.hist.get_history_file(self._input_data['RPE image file paths'][idx])
         self._image_view.set_image_name(history_file_name)
         self._image_view.reset_view(True)
+        self._image_view.color_info = self._input_data['colors'][idx]
         self.annotation_pts_checkbox.setChecked(True)
     #
     def _detect_RPE_cells(self):
@@ -565,21 +681,34 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.saveState()
         except Exception as ex:
             display_error('Error saving data', ex)
+            
+    def _delete_all(self, event):
+        id = self._cur_img_id
+        if id < 0: return
+        if len(self._input_data['RPE annotations'][id]) == 0: return
+        if not askYesNo('Confirm',
+                'You are about to delete all annotations \non the current image.',
+                detail='This operation can not be undone. \nContinue?'):
+            return
+        self.annotation_pts_checkbox.setChecked(True)
+        self._input_data['RPE annotations'][id] = []
+        history_file_name = self.hist.get_history_file(self._input_data['RPE image file paths'][id])
+        self._file_io.write_points(history_file_name, self._input_data['RPE annotations'][id],
+                                   self._input_data['RPE images'][id].GetOrigin(),
+                                   self._input_data['RPE images'][id].GetSpacing())
+        self._image_view.set_annotations(self._input_data['RPE annotations'][id])
+        self._image_view.reset_view(False)
+
 
     def _quit(self, event):
         self.close()
 
-    def _set_mouse_model(self):
-        self._mouse_status = 0
+    def _set_mouse_mode(self, m=MouseOp.Normal):
+        self._mouse_status = m
         self._image_view.set_mouse_mode(self._mouse_status)
 
-    def _set_add_annotation(self):
-        self._mouse_status = 1
-        self._image_view.set_mouse_mode(self._mouse_status)
-
-    def _set_erase_annotation(self):
-        self._mouse_status = 2
-        self._image_view.set_mouse_mode(self._mouse_status)
+    def _undo(self):
+        self._image_view.undo()
 
     def _set_annotation_points_visibility(self, state):
         self._image_view.annotation_pts_visibility = state
@@ -597,6 +726,9 @@ class MainWindow(QtWidgets.QMainWindow):
     
     def _reset_brightness_contrast(self):
         self._image_view.reset_color()
+        if self._cur_img_id >= 0:
+            self._input_data['colors'][self._cur_img_id] = self._image_view.color_info
+        self._image_view.reset_view(True)
 
     @property
     def mouse_status(self):

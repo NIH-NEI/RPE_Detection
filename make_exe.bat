@@ -1,1 +1,1 @@
-pyinstaller --clean --noconfirm --onefile build-exe.spec
+pyinstaller --clean build-exe.spec
