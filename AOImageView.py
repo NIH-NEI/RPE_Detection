@@ -23,6 +23,9 @@ class MouseOp(enum.IntEnum):
     
 UndoEntry = namedtuple('UndoEntry', ['m_del', 'm_more', 'pt'])
 class UndoStack(object):
+    ADD = 0
+    DEL = 1
+    IMG = 2
     def __init__(self, maxundo=1000):
         self.maxundo = maxundo
         #
@@ -34,14 +37,14 @@ class UndoStack(object):
     def is_empty(self):
         return len(self.buf) == 0
     #
-    def push_undo(self, pt, m_del=False, m_more=False):
+    def push_undo(self, pt, m_del=ADD, m_more=False):
         self.buf.insert(0, UndoEntry(m_del, m_more, pt))
         if len(self.buf) > self.maxundo:
             self.buf[self.maxundo:] = []
     #
     def pop_undo(self):
         if len(self.buf) == 0:
-            return False, False, None
+            return ADD, False, None
         ent = self.buf.pop(0)
         return ent.m_del, ent.m_more, ent.pt
     #
@@ -119,6 +122,9 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
         self.m_ypos = 0
         #
         self.img_dim = None
+        self.max_xpos = 0
+        self.max_ypos = 0
+        self.ci = (127.5, 255.)
         self.last_pick_value = 0
         #
         self._undo_stack = UndoStack()
@@ -212,15 +218,18 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
         while has_more:
             m_del, has_more, pick = self._undo_stack.pop_undo()
             if pick is None: break
-            if m_del:
+            if m_del == UndoStack.DEL:
                 if self.can_add(pick):
                     self._annotations.append(pick)
                     dirty = True
-            else:
+            elif m_del == UndoStack.ADD:
                 idx = self.find_point(pick)
                 if idx >= 0:
                     del self._annotations[idx]
                     dirty = True
+            elif m_del == UndoStack.IMG:
+                self.parent.color_info = pick
+                dirty = True
         if dirty:
             self._annotation_pts.Initialize()
             if len(self._annotations) is not 0:
@@ -239,7 +248,7 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
         has_more = False
         for pt in self._annotations:
             if isPointInside(pt, contour):
-                self._undo_stack.push_undo(pt, True, has_more)
+                self._undo_stack.push_undo(pt, UndoStack.DEL, has_more)
                 has_more = True
             else:
                 annotations.append(pt)
@@ -274,6 +283,9 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
             return
         
         self.img_dim = self.parent.get_image_dimensions()
+        self.max_xpos = self.img_dim[0] - 0.5
+        self.max_ypos = self.img_dim[1] - 0.5
+        self.ci = self.parent.color_info
         self._contour_pts = []
         self._mouse_down = True
         op = self._mouse_mode
@@ -294,13 +306,13 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
                 # Add point
                 if self.can_add(pick_pos):
                     self._annotations.append(pick_pos)
-                    self._undo_stack.push_undo(pick_pos, False, False)
+                    self._undo_stack.push_undo(pick_pos, UndoStack.ADD, False)
                     dirty_ann = True
             elif op == MouseOp.Remove:
                 # Remove point
                 idx = self.find_point(pick_pos, self._tolerance)
                 if idx >= 0:
-                    self._undo_stack.push_undo(self._annotations[idx], True, False)
+                    self._undo_stack.push_undo(self._annotations[idx], UndoStack.DEL, False)
                     del self._annotations[idx]
                     dirty_ann = True
             elif op == MouseOp.Move:
@@ -364,8 +376,8 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
                 pt = self._annotations[self.m_idx]
                 old_pt = (self.m_xpos, self.m_ypos, -0.0001)
                 if self.pt_dist(pt, old_pt) >= 0.001:
-                    self._undo_stack.push_undo(old_pt, True, False)
-                    self._undo_stack.push_undo(pt, False, True)
+                    self._undo_stack.push_undo(old_pt, UndoStack.DEL, False)
+                    self._undo_stack.push_undo(pt, UndoStack.ADD, True)
                     self._annotation_pts.Initialize()
                     self._annotation_pts.SetData(numpy_support.numpy_to_vtk(np.asarray(self._annotations)))
                     self._annotation_pts.Modified()
@@ -373,6 +385,9 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
                     if not self.parent is None:
                         self.parent.reset_view(False)
             return
+        _ci = self.parent.color_info
+        if math.fabs(_ci[0] - self.ci[0]) > 0.01 or math.fabs(_ci[1] - self.ci[1]) > 0.01:
+            self._undo_stack.push_undo(self.ci, UndoStack.IMG, False)
         obj.OnLeftButtonUp()
     #
     def mouseMoveEvent(self, obj, event):
@@ -387,7 +402,13 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
                 pick_value = inter.GetPicker().Pick(mx, my, 0, self.GetDefaultRenderer())
                 pick_pos = inter.GetPicker().GetPickPosition()
                 if op == MouseOp.Move and pick_value != 0 and self.m_idx >= 0:
-                    self._annotations[self.m_idx] = pick_pos
+                    xpos, ypos = pick_pos[:2]
+                    if xpos < 0.5: xpos = 0.5
+                    if xpos > self.max_xpos: xpos = self.max_xpos
+                    if ypos < 0.5: ypos = 0.5
+                    if ypos > self.max_ypos: ypos = self.max_ypos
+                    
+                    self._annotations[self.m_idx] = (xpos, ypos, -0.0001)
                     self._annotation_pts.Initialize()
                     self._annotation_pts.SetData(numpy_support.numpy_to_vtk(np.asarray(self._annotations)))
                     self._annotation_pts.Modified()
