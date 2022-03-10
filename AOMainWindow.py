@@ -128,6 +128,9 @@ class MainWindow(QtWidgets.QMainWindow):
         geom = QtWidgets.QApplication.primaryScreen().geometry()
         self.setMinimumSize(geom.width()*60//100, geom.height()*2//3)
         
+        self.resize(geom.width()*70//100, geom.height()*70//100)
+        self.move(geom.width()*10//100, geom.height()*10//100)
+        
         self._setup_layout()
         self._setup_menu()
         self._setup_toolbar()
@@ -363,6 +366,13 @@ class MainWindow(QtWidgets.QMainWindow):
                 checkable=True, checked=False,
                 triggered=lambda: self._set_mouse_mode(MouseOp.Remove))
         settings_bar.addAction(erase_single_act)
+        
+        voronoi_act = QtWidgets.QAction('Voronoi', mouse_group, shortcut='Ctrl+V',
+                icon=qt_icon('Voronoi'), toolTip='Show Voronoi diagram',
+                checkable=True, checked=False,
+                triggered=lambda: self._set_mouse_mode(MouseOp.Voronoi))
+        settings_bar.addAction(voronoi_act)
+        
         settings_bar.addSeparator()
 
         self.undo_act = QtWidgets.QAction('Undo', self, shortcut='Ctrl+Z',

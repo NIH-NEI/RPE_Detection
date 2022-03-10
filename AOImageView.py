@@ -9,6 +9,7 @@ from vtk.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
 from PyQt5 import QtCore, QtWidgets
 import numpy as np
 import math
+from scipy.spatial import Voronoi
 import SimpleITK as sitk
 from AOFileIO import write_points
 import AOConfig as cfg
@@ -20,6 +21,7 @@ class MouseOp(enum.IntEnum):
     Remove = 2
     Move = 3
     EraseMulti = 4
+    Voronoi = 5
     
 UndoEntry = namedtuple('UndoEntry', ['m_del', 'm_more', 'pt'])
 class UndoStack(object):
@@ -85,6 +87,79 @@ def isPointInside(pt, contour):
 
 ###### End of winding number algorithm
 
+class SegmentClipper(object):
+    Inside = 0
+    Left = 1
+    Right = 2
+    Bottom = 4
+    Top = 8
+    def __init__(self, rect_dim):
+        self.w = rect_dim[0]
+        self.h = rect_dim[1]
+        self.x0 = 0.001
+        self.y0 = 0.001
+        self.x1 = self.w - 0.001
+        self.y1 = self.h - 0.001
+    #
+    def bnd_points(self):
+        pts = []
+        for y in (-self.h*10, self.h*0.5, self.h*11):
+            for x in (-self.w*10, self.w*0.5, self.w*11):
+                pt = (x, y)
+                if self.outCode(pt) != self.Inside:
+                    pts.append(pt)
+        return pts
+    #
+    def clip(self, pt0, pt1):
+        #return (pt0, pt1)
+        oc0 = self.outCode(pt0)
+        oc1 = self.outCode(pt1)
+        if oc0 != self.Inside and oc1 != self.Inside:
+            return None
+        #while oc0 != self.Inside or oc1 != self.Inside:
+        if oc0 != self.Inside:
+            pt0 = self.intersect(pt1, pt0, oc0)
+            if pt0 is None: return None
+            oc0 = self.outCode(pt0)
+        elif oc1 != self.Inside:
+            pt1 = self.intersect(pt0, pt1, oc1)
+            if pt1 is None: return None
+            oc1 = self.outCode(pt1)
+        return [pt0, pt1]
+    #
+    def intersect(self, pt0, pt1, oc):
+        dx = pt1[0] - pt0[0]
+        dy = pt1[1] - pt0[1]
+        if oc & self.Left:
+            y = pt0[1] + dy * (self.x0 - pt0[0]) / dx;
+            if y>=self.y0 and y<=self.y1:
+                return (self.x0, y)
+        if oc & self.Right:
+            y = pt0[1] + dy * (self.x1 - pt0[0]) / dx;
+            if y>=self.y0 and y<=self.y1:
+                return (self.x1, y)
+        if oc & self.Top:
+            x = pt0[0] + dx * (self.y0 - pt0[1]) / dy;
+            if x>=self.x0 and x<=self.x1:
+                return (x, self.y0)
+        if oc & self.Bottom:
+            x = pt0[0] + dx * (self.y1 - pt0[1]) / dy;
+            if x>=self.x0 and x<=self.x1:
+                return (x, self.y1)
+        return None
+    #
+    def outCode(self, pt):
+        oc = 0
+        if pt[0] < self.x0:
+            oc |= self.Left
+        if pt[0] > self.x1:
+            oc |= self.Right
+        if pt[1] < self.y0:
+            oc |= self.Top
+        if pt[1] > self.y1:
+            oc |= self.Bottom
+        return oc
+    #
 
 class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
     def __init__(self, mouse_mode = 0, parent=None):
@@ -160,12 +235,41 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
     @tolerance.setter
     def tolerance(self, val):
         self._tolerance = val
+        
+    def _update_voronoi_segments(self):
+        _vor_contours = []
+        if self._mouse_mode == MouseOp.Voronoi and len(self._annotations) >= 3:
+            clip = SegmentClipper(self.parent.get_image_dimensions())
+            annos = [[p[0], p[1]] for p in self._annotations] + clip.bnd_points()
+            vor = Voronoi(np.array(annos))
+            vertices = [(v[0], v[1]) for v in vor.vertices]
+            ptis = set()
+            for rg in vor.regions:
+                if len(rg) < 2: continue
+                idx0 = -1
+                for idx in rg:
+                    if idx >=0 and idx0 >= 0:
+                        pti = (idx, idx0) if idx < idx0 else (idx0, idx)
+                        ptis.add(pti)
+                    idx0 = idx
+                idx = rg[0]
+                if idx >=0 and idx0 >= 0:
+                    pti = (idx, idx0) if idx < idx0 else (idx0, idx)
+                    ptis.add(pti)
+            #
+            for (i0, i1) in ptis:
+                pts = clip.clip(vertices[i0], vertices[i1])
+                if pts:
+                    _vor_contours.append(pts)
+        self.parent.set_voronoi_contours(_vor_contours)
 
     def set_mouse_mode(self, mouse_mode):
         self._mouse_mode = mouse_mode
+        self._update_voronoi_segments()
 
     def set_annotations(self, pts):
         self._annotations = pts
+        self._update_voronoi_segments()
         
     def can_add(self, pick):
         for pt in self._annotations:
@@ -522,9 +626,11 @@ class ao_visualization(object):
         self._draw_image()
 
         self._interactive_contour_width = 3
+        self._voronoi_contour_width = 1.5
         self._annotation_size = 12
         self._draw_annotations()
         self._draw_interactive_contours()
+        self._draw_voronoi_contours()
 
         # scalarbar = vtk.vtkScalarBarActor()
         # scalarbar.SetLookupTable(self._prob_lut)
@@ -534,6 +640,7 @@ class ao_visualization(object):
         self._render.AddActor(self._image_actor)
         self._render.AddActor(self._annotated_actor)
         self._render.AddActor(self._interactive_contour_actor)
+        self._render.AddActor(self._voronoi_contour_actor)
         self._render.ResetCamera()
 
         self._vtk_widget.GetRenderWindow().AddRenderer(self._render)
@@ -597,6 +704,23 @@ class ao_visualization(object):
         self._interactive_contour_actor.SetMapper(self._interactive_contour_mapper)
         self._interactive_contour_actor.GetProperty().SetColor(217/255.0, 95.0/255.0, 14.0/255.0)
         self._interactive_contour_actor.GetProperty().SetLineWidth(self._interactive_contour_width)
+        
+    def _draw_voronoi_contours(self):
+        self._voronoi_contour_points = vtk.vtkPoints()
+        self._voronoi_contour_points.SetDataTypeToFloat()
+        self._voronoi_contour_lines = vtk.vtkCellArray()
+        self._voronoi_contour_poly = vtk.vtkPolyData()
+        self._voronoi_contour_poly.SetPoints(self._voronoi_contour_points)
+        self._voronoi_contour_poly.SetLines(self._voronoi_contour_lines)
+
+        self._voronoi_contour_mapper = vtk.vtkPolyDataMapper()
+        self._voronoi_contour_mapper.SetInputData(self._voronoi_contour_poly)
+        self._voronoi_contour_mapper.ScalarVisibilityOff()
+
+        self._voronoi_contour_actor = vtk.vtkActor()
+        self._voronoi_contour_actor.SetMapper(self._voronoi_contour_mapper)
+        self._voronoi_contour_actor.GetProperty().SetColor(5./255.0, 196.0/255.0, 196.0/255.0)
+        self._voronoi_contour_actor.GetProperty().SetLineWidth(self._voronoi_contour_width)
 
     def initialization(self):
         self._image_data.Initialize()
@@ -608,6 +732,10 @@ class ao_visualization(object):
         self._interactive_contour_points.Initialize()
         self._interactive_contour_lines.Initialize()
         self._interactive_contour_poly.Modified()
+
+        self._voronoi_contour_points.Initialize()
+        self._voronoi_contour_lines.Initialize()
+        self._voronoi_contour_poly.Modified()
 
     def _change_camera_orientation(self):
         self._render.ResetCamera()
@@ -720,4 +848,27 @@ class ao_visualization(object):
         self._interactive_contour_points.Modified()
         self._interactive_contour_lines.Modified()
         self._interactive_contour_poly.Modified()
+    #
+    def set_voronoi_contours(self, contour_pts):
+        self._voronoi_contour_points.Initialize()
+        self._voronoi_contour_lines.Initialize()
+        img_origin = self._image_data.GetOrigin()
+        img_spacing = self._image_data.GetSpacing()
+
+        for i, pts in enumerate(contour_pts):
+            if len(pts) == 0:
+                continue
+
+            self._voronoi_contour_lines.InsertNextCell(len(pts)+1)
+            start_index = self._voronoi_contour_points.GetNumberOfPoints()
+            for id, pt in enumerate(pts):
+                self._voronoi_contour_points.InsertNextPoint(img_origin[0] + img_spacing[0] * pt[0],
+                                                     img_origin[1] + img_spacing[1] * pt[1], -0.001)
+                self._voronoi_contour_lines.InsertCellPoint(id+start_index)
+            self._voronoi_contour_lines.InsertCellPoint(start_index)
+
+        self._voronoi_contour_points.Modified()
+        self._voronoi_contour_lines.Modified()
+        self._voronoi_contour_poly.Modified()
+        self.reset_view()
     #

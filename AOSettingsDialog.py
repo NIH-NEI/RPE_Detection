@@ -189,8 +189,22 @@ class ao_parameter_dialog(QtWidgets.QDialog):
         view_layout.addWidget(self._clustering_radius_input, 3, 1)
         view_layout.addWidget(fov_label, 4, 0)
         view_layout.addWidget(self._fov_input, 4, 1)
-        view_layout.addWidget(self.buttonbox, 5, 0, 1, 2)
+        
+        self.defBtn = QtWidgets.QPushButton('Restore Defaults')
+        view_layout.addWidget(self.defBtn, 5, 0)
+        self.defBtn.clicked.connect(self.restoreDefaults)
+        
+        view_layout.addWidget(self.buttonbox, 6, 0, 1, 2)
         self.setLayout(view_layout)
+    #
+    def restoreDefaults(self):
+        self._probability_threshold_input.setValue(0.5)
+        self._clustering_radius_input.setValue(20)
+        self._fov_input.setText('0.75')
+        try:
+            self._detection_method_box.setCurrentIndex(0)
+        except Exception:
+            pass
     #
     def SetImageList(self, items):
         self.imageTable.setRowCount(len(items))

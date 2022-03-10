@@ -1,3 +1,7 @@
+#### Version 1.1.0 (2022-03-09) ####
+- Added "Voronoi" mouse mode. Same as "Default", but display Voronoi diagram on annotations.
+- Added "Restore Defaults" button to the Detection Settings dialog.
+
 #### Version 1.1.0 (2022-03-07) ####
 - Fixed bug with dragging marker outside of the image.
 - Brightness/Contrast changes can be undone with the “Undo” button.
