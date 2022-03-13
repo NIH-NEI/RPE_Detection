@@ -21,7 +21,6 @@ class MouseOp(enum.IntEnum):
     Remove = 2
     Move = 3
     EraseMulti = 4
-    Voronoi = 5
     
 UndoEntry = namedtuple('UndoEntry', ['m_del', 'm_more', 'pt'])
 class UndoStack(object):
@@ -86,6 +85,40 @@ def isPointInside(pt, contour):
     return wn_PnPoly(pt, contour) != 0
 
 ###### End of winding number algorithm
+
+def dist(pt1, pt2):
+    return math.sqrt((pt1[0]-pt2[0])**2 + (pt1[1]-pt2[1])**2)
+
+# Optimize a contour by removing vertices too close to each other
+def optimizeContour(contour, min_dist=1.5):
+    n = len(contour)
+    if n < 5:
+        return contour
+    pt1 = contour[0]
+    res = [pt1]
+    for i in range(1, n):
+        pt2 = contour[i]
+        cur_dist = dist(pt1, pt2)
+        if cur_dist >= min_dist:
+            res.append(pt2)
+            pt1 = pt2
+    return res
+
+def boundingBox(contour):
+    pt = contour[0]
+    xmin = xmax = pt[0]
+    ymin = ymax = pt[1]
+    for pt in contour:
+        if pt[0] < xmin: xmin = pt[0]
+        if pt[0] > xmax: xmax = pt[0]
+        if pt[1] < ymin: ymin = pt[1]
+        if pt[1] > ymax: ymax = pt[1]
+    return xmin, ymin, xmax, ymax
+
+def isInBB(bb, pt):
+    xmin, ymin, xmax, ymax = bb
+    if pt[0] < xmin or pt[0] > xmax: return False
+    return pt[1] >= ymin and pt[1] <= ymax
 
 class SegmentClipper(object):
     Inside = 0
@@ -177,7 +210,7 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
 
         self.parent = parent
         self._mouse_mode = mouse_mode
-        self._annotations = None
+        self._annotations = []
         self._annotation_pts = None #used for VTK
         self._image_name = None
         self._tolerance = 0
@@ -236,40 +269,11 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
     def tolerance(self, val):
         self._tolerance = val
         
-    def _update_voronoi_segments(self):
-        _vor_contours = []
-        if self._mouse_mode == MouseOp.Voronoi and len(self._annotations) >= 3:
-            clip = SegmentClipper(self.parent.get_image_dimensions())
-            annos = [[p[0], p[1]] for p in self._annotations] + clip.bnd_points()
-            vor = Voronoi(np.array(annos))
-            vertices = [(v[0], v[1]) for v in vor.vertices]
-            ptis = set()
-            for rg in vor.regions:
-                if len(rg) < 2: continue
-                idx0 = -1
-                for idx in rg:
-                    if idx >=0 and idx0 >= 0:
-                        pti = (idx, idx0) if idx < idx0 else (idx0, idx)
-                        ptis.add(pti)
-                    idx0 = idx
-                idx = rg[0]
-                if idx >=0 and idx0 >= 0:
-                    pti = (idx, idx0) if idx < idx0 else (idx0, idx)
-                    ptis.add(pti)
-            #
-            for (i0, i1) in ptis:
-                pts = clip.clip(vertices[i0], vertices[i1])
-                if pts:
-                    _vor_contours.append(pts)
-        self.parent.set_voronoi_contours(_vor_contours)
-
     def set_mouse_mode(self, mouse_mode):
         self._mouse_mode = mouse_mode
-        self._update_voronoi_segments()
 
     def set_annotations(self, pts):
         self._annotations = pts
-        self._update_voronoi_segments()
         
     def can_add(self, pick):
         for pt in self._annotations:
@@ -315,7 +319,19 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
                 pt2[pidx1] = pt1[pidx1]
                 self._contour_pts.append(tuple(pt2))
         return pt1
-
+    
+    def _update_annotations(self, upd_voronoi=True):
+        self._annotation_pts.Initialize()
+        if len(self._annotations) is not 0:
+            self._annotation_pts.SetData(numpy_support.numpy_to_vtk(np.asarray(self._annotations)))
+        self._annotation_pts.Modified()
+        write_points(self._image_name, self._annotations, self._image_origin, self._image_spacing)
+        if not self.parent is None:
+            if upd_voronoi:
+                self.parent.update_voronoi_segments()
+            else:
+                self.parent.reset_view(False)
+    #
     def undo(self):
         has_more = not self._undo_stack.is_empty()
         dirty = False
@@ -335,14 +351,7 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
                 self.parent.color_info = pick
                 dirty = True
         if dirty:
-            self._annotation_pts.Initialize()
-            if len(self._annotations) is not 0:
-                self._annotation_pts.SetData(numpy_support.numpy_to_vtk(np.asarray(self._annotations)))
-            self._annotation_pts.Modified()
-
-            write_points(self._image_name, self._annotations, self._image_origin, self._image_spacing)
-            if not self.parent is None:
-                self.parent.reset_view(False)
+            self._update_annotations()
     #
     def delete_points_inside(self):
         contour = [(pt[0], pt[1]) for pt in self._contour_pts]
@@ -350,20 +359,17 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
         contour.append(contour[0])
         annotations = []
         has_more = False
+        contour = optimizeContour(contour)
+        bb = boundingBox(contour)
         for pt in self._annotations:
-            if isPointInside(pt, contour):
+            if isInBB(bb, pt) and isPointInside(pt, contour):
                 self._undo_stack.push_undo(pt, UndoStack.DEL, has_more)
                 has_more = True
             else:
                 annotations.append(pt)
         if has_more:
             self._annotations[:] = annotations
-            self._annotation_pts.Initialize()
-            if len(self._annotations) is not 0:
-                self._annotation_pts.SetData(numpy_support.numpy_to_vtk(np.asarray(self._annotations)))
-            self._annotation_pts.Modified()
-            #
-            write_points(self._image_name, self._annotations, self._image_origin, self._image_spacing)
+            self._update_annotations()
     #
 
     def _GetControlKey(self):
@@ -431,11 +437,7 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
                 dirty_cont = True
             
             if dirty_ann:
-                self._annotation_pts.Initialize()
-                if len(self._annotations) is not 0:
-                    self._annotation_pts.SetData(numpy_support.numpy_to_vtk(np.asarray(self._annotations)))
-                self._annotation_pts.Modified()
-                write_points(self._image_name, self._annotations, self._image_origin, self._image_spacing)
+                self._update_annotations()
             if dirty_cont:
                 self.parent.set_interactive_contour(self._contour_pts)
             if not self.parent is None and (dirty_ann or dirty_cont):
@@ -482,12 +484,7 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
                 if self.pt_dist(pt, old_pt) >= 0.001:
                     self._undo_stack.push_undo(old_pt, UndoStack.DEL, False)
                     self._undo_stack.push_undo(pt, UndoStack.ADD, True)
-                    self._annotation_pts.Initialize()
-                    self._annotation_pts.SetData(numpy_support.numpy_to_vtk(np.asarray(self._annotations)))
-                    self._annotation_pts.Modified()
-                    write_points(self._image_name, self._annotations, self._image_origin, self._image_spacing)
-                    if not self.parent is None:
-                        self.parent.reset_view(False)
+                self._update_annotations()
             return
         _ci = self.parent.color_info
         if math.fabs(_ci[0] - self.ci[0]) > 0.01 or math.fabs(_ci[1] - self.ci[1]) > 0.01:
@@ -513,11 +510,7 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
                     if ypos > self.max_ypos: ypos = self.max_ypos
                     
                     self._annotations[self.m_idx] = (xpos, ypos, -0.0001)
-                    self._annotation_pts.Initialize()
-                    self._annotation_pts.SetData(numpy_support.numpy_to_vtk(np.asarray(self._annotations)))
-                    self._annotation_pts.Modified()
-                    if not self.parent is None:
-                        self.parent.reset_view(False)
+                    self._update_annotations(False)
                 elif op == MouseOp.EraseMulti:
                     dirty = False
                     if pick_value == 0:
@@ -625,6 +618,7 @@ class ao_visualization(object):
         self._vtk_widget = vtk_widget
         self._draw_image()
 
+        self._voronoi = False
         self._interactive_contour_width = 3
         self._voronoi_contour_width = 1.5
         self._annotation_size = 12
@@ -775,7 +769,6 @@ class ao_visualization(object):
     def set_mouse_mode(self, mouse_mode):
         self._style.set_mouse_mode(mouse_mode)
 
-
     def _convert_nparray_to_vtk_image(self, itk_img, vtk_img):
         img_size = itk_img.GetSize()
         img_orig = itk_img.GetOrigin()
@@ -813,6 +806,7 @@ class ao_visualization(object):
         #     self._annotated_points.SetPoint(id, pt[0], pt[1], 0)
         self._annotated_points.Modified()
         self._style._undo_stack.clear()
+        self.update_voronoi_segments()
         
     def is_undo_empty(self):
         return self._style._undo_stack.is_empty()
@@ -872,3 +866,38 @@ class ao_visualization(object):
         self._voronoi_contour_poly.Modified()
         self.reset_view()
     #
+    @property
+    def voronoi(self):
+        return self._voronoi
+    #
+    @voronoi.setter
+    def voronoi(self, flag):
+        self._voronoi = flag
+        self.update_voronoi_segments()
+    #
+    def update_voronoi_segments(self):
+        _vor_contours = []
+        if self.voronoi and len(self._style._annotations) >= 3:
+            clip = SegmentClipper(self.get_image_dimensions())
+            annos = [[p[0], p[1]] for p in self._style._annotations] + clip.bnd_points()
+            vor = Voronoi(np.array(annos))
+            vertices = [(v[0], v[1]) for v in vor.vertices]
+            ptis = set()
+            for rg in vor.regions:
+                if len(rg) < 2: continue
+                idx0 = -1
+                for idx in rg:
+                    if idx >=0 and idx0 >= 0:
+                        pti = (idx, idx0) if idx < idx0 else (idx0, idx)
+                        ptis.add(pti)
+                    idx0 = idx
+                idx = rg[0]
+                if idx >=0 and idx0 >= 0:
+                    pti = (idx, idx0) if idx < idx0 else (idx0, idx)
+                    ptis.add(pti)
+            #
+            for (i0, i1) in ptis:
+                pts = clip.clip(vertices[i0], vertices[i1])
+                if pts:
+                    _vor_contours.append(pts)
+        self.set_voronoi_contours(_vor_contours)

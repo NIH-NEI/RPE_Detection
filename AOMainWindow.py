@@ -162,6 +162,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 jobj = json.load(fi)
             if 'annotation_size' in jobj:
                 self._annotation_size_input.setValue(int(jobj['annotation_size']))
+            if 'voronoi' in jobj:
+                self._image_view.voronoi = bool(jobj['voronoi'])
+                self.voronoi_act.setChecked(self._image_view.voronoi)
             self._detection_para_dlg.set_state(jobj['detection_para'])
             if 'loadDir' in jobj:
                 self.loadDir = QtCore.QDir(jobj['loadDir'])
@@ -182,6 +185,7 @@ class MainWindow(QtWidgets.QMainWindow):
             jobj = {
                 'detection_para': self._detection_para_dlg.get_state(),
                 'annotation_size': self._annotation_size_input.value(),
+                'voronoi': self._image_view.voronoi,
             }
             if not ldir is None:
                 jobj['loadDir'] = ldir
@@ -366,13 +370,6 @@ class MainWindow(QtWidgets.QMainWindow):
                 checkable=True, checked=False,
                 triggered=lambda: self._set_mouse_mode(MouseOp.Remove))
         settings_bar.addAction(erase_single_act)
-        
-        voronoi_act = QtWidgets.QAction('Voronoi', mouse_group, shortcut='Ctrl+V',
-                icon=qt_icon('Voronoi'), toolTip='Show Voronoi diagram',
-                checkable=True, checked=False,
-                triggered=lambda: self._set_mouse_mode(MouseOp.Voronoi))
-        settings_bar.addAction(voronoi_act)
-        
         settings_bar.addSeparator()
 
         self.undo_act = QtWidgets.QAction('Undo', self, shortcut='Ctrl+Z',
@@ -380,6 +377,13 @@ class MainWindow(QtWidgets.QMainWindow):
                 toolTip='Undo last Add, Move or Erase operation (Ctrl+Z)', 
                 triggered=self._undo)
         settings_bar.addAction(self.undo_act)
+        settings_bar.addSeparator()
+
+        self.voronoi_act = QtWidgets.QAction('Voronoi', shortcut='Ctrl+V',
+                icon=qt_icon('Voronoi'), toolTip='Toggle Voronoi Diagram display',
+                checkable=True, checked=False,
+                triggered=self._toggle_voronoi)
+        settings_bar.addAction(self.voronoi_act)
 
         detection_setup_group = QtWidgets.QGroupBox()
         detection_setup_layout = QtWidgets.QGridLayout()
@@ -733,6 +737,10 @@ class MainWindow(QtWidgets.QMainWindow):
     def _toggle_visibility(self):
         state = 0 if self._image_view.annotation_pts_visibility else 1
         self.annotation_pts_checkbox.setChecked(state)
+        
+    def _toggle_voronoi(self):
+        self._image_view.voronoi = self.voronoi_act.isChecked()
+        self.saveState()
     
     def _reset_brightness_contrast(self):
         self._image_view.reset_color()

@@ -1,5 +1,5 @@
-#### Version 1.1.0 (2022-03-09) ####
-- Added "Voronoi" mouse mode. Same as "Default", but display Voronoi diagram on annotations.
+#### Version 1.1.0 (2022-03-14) ####
+- Added "Voronoi" button in the toolbar to toggle Voronoi Diagram display.
 - Added "Restore Defaults" button to the Detection Settings dialog.
 
 #### Version 1.1.0 (2022-03-07) ####
