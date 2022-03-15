@@ -32,14 +32,17 @@ about_html = '''
 <table><tr>
 <td><img src="%s">&nbsp;&nbsp;</td>
 <td><b>%s %s</b><div>
-Tam lab<br>
-National Eye Institute<br>
-National Institutes of Health</div><div><br>
-RPE Cell Detection (Machine Learning edition)<br><br>
-<i>Jianfei Liu (NEI/NIH), Andrei Volkov (NEI/NIH Contractor), and Johnny Tam (NEI/NIH),<br>
-with research support from the Intramural Research Program<br>
-of the National Institutes of Health.</i>
-</td></tr></table>
+<a href="https://nei.nih.gov/intramural/translational-imaging">Tam lab</a><br>
+<a href="https://nei.nih.gov/">National Eye Institute</a><br>
+<a href="https://www.nih.gov/">National Institutes of Health</a></div><div><br>
+<span style="color:#000088;">RPE Detection (Machine Learning edition).</span><br>
+If any portion of this software is used, please<br>
+cite the following paper in your publication:<br>
+</td></tr><tr><td colspan=2>
+<b>Jianfei Liu, Yoo-Jean Han, Tao Liu, Nancy Aguilera, and Johnny Tam,</b> <br>
+"Spatially Aware Dense-LinkNet Based Regression Improves Fluorescent <br>
+Cell Detection in Adaptive Optics Ophthalmic Images,"<br>
+<i>IEEE Journal of Biomedical Health Informatics</i> 24(12):3520-3528, 2020</td></tr></table>
 ''' % (_big_icon.url(), cfg.APP_NAME, cfg.APP_VERSION)
 #
 class AboutDialog(QtWidgets.QDialog):
@@ -53,6 +56,7 @@ class AboutDialog(QtWidgets.QDialog):
         layout = QtWidgets.QVBoxLayout()
         lbl = QtWidgets.QLabel(about_html)
         lbl.setTextFormat(QtCore.Qt.RichText)
+        lbl.setOpenExternalLinks(True)
         #
         buttonbox = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok)
         buttonbox.accepted.connect(self.close)
@@ -160,19 +164,21 @@ class MainWindow(QtWidgets.QMainWindow):
         try:
             with open(self.state_file, 'r') as fi:
                 jobj = json.load(fi)
-            if 'annotation_size' in jobj:
-                self._annotation_size_input.setValue(int(jobj['annotation_size']))
-            if 'voronoi' in jobj:
-                self._image_view.voronoi = bool(jobj['voronoi'])
-                self.voronoi_act.setChecked(self._image_view.voronoi)
             self._detection_para_dlg.set_state(jobj['detection_para'])
             if 'loadDir' in jobj:
                 self.loadDir = QtCore.QDir(jobj['loadDir'])
             if 'saveDir' in jobj:
                 self.saveDir = QtCore.QDir(jobj['saveDir'])
+            if 'annotation_size' in jobj:
+                self._annotation_size_input.setValue(int(jobj['annotation_size']))
+            if 'voronoi' in jobj:
+                self._image_view.voronoi = bool(jobj['voronoi'])
+                self.voronoi_act.setChecked(self._image_view.voronoi)
         except Exception:
             pass
+        self.save_ok = True
     def saveState(self):
+        if not hasattr(self, 'save_ok'): return
         try:
             ldir = self.loadDir.canonicalPath()
         except Exception:
@@ -210,6 +216,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self._open_annotation_list(csv_filenames, strict)
 
     def _initialize_input_data(self):
+        self._cur_img_id = -1
         self._input_data['RPE image file paths'].clear()
         self._input_data['RPE image names'].clear()
         self._input_data['RPE images'].clear()
@@ -345,8 +352,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Mouse Op button group
         mouse_group = QtWidgets.QActionGroup(self)
-        default_act = QtWidgets.QAction('Default', mouse_group, shortcut='Ctrl+M',
-                icon=qt_icon('mouse'), toolTip='Default Mouse Mode (Ctrl+M)',
+        default_act = QtWidgets.QAction('Adjust', mouse_group, shortcut='Ctrl+M',
+                icon=qt_icon('mouse'), toolTip='Default Mouse Mode - adjust brightness/contrast (Ctrl+M)',
                 checkable=True, checked=True,
                 triggered=lambda: self._set_mouse_mode(MouseOp.Normal))
         settings_bar.addAction(default_act)

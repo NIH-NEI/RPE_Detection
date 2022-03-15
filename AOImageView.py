@@ -846,8 +846,6 @@ class ao_visualization(object):
     def set_voronoi_contours(self, contour_pts):
         self._voronoi_contour_points.Initialize()
         self._voronoi_contour_lines.Initialize()
-        img_origin = self._image_data.GetOrigin()
-        img_spacing = self._image_data.GetSpacing()
 
         for i, pts in enumerate(contour_pts):
             if len(pts) == 0:
@@ -856,8 +854,7 @@ class ao_visualization(object):
             self._voronoi_contour_lines.InsertNextCell(len(pts)+1)
             start_index = self._voronoi_contour_points.GetNumberOfPoints()
             for id, pt in enumerate(pts):
-                self._voronoi_contour_points.InsertNextPoint(img_origin[0] + img_spacing[0] * pt[0],
-                                                     img_origin[1] + img_spacing[1] * pt[1], -0.001)
+                self._voronoi_contour_points.InsertNextPoint(pt[0], pt[1], -0.001)
                 self._voronoi_contour_lines.InsertCellPoint(id+start_index)
             self._voronoi_contour_lines.InsertCellPoint(start_index)
 

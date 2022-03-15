@@ -3,7 +3,19 @@
 
 *Jianfei Liu (NEI/NIH), Andrei Volkov (NEI/NIH Contractor), and Johnny Tam (NEI/NIH), with research support from the Intramural Research Program of the National Institutes of Health.*
 
-<img src="assets/app_main.png" width="563" height="360" />
+### BibTeX
+
+	@ARTICLE{9122548,
+		author={Liu, Jianfei and Han, Yoo-Jean and Liu, Tao and Aguilera, Nancy and Tam, Johnny},
+		journal={IEEE Journal of Biomedical and Health Informatics},
+		title={Spatially Aware Dense-LinkNet Based Regression Improves Fluorescent Cell Detection in Adaptive Optics Ophthalmic Images},
+		year={2020},
+		volume={24},
+		number={12},
+		pages={3520-3528},
+		doi={10.1109/JBHI.2020.3004271}}
+
+<img src="assets/app_main.png" width="524" height="360" />
 
 ---------------
 

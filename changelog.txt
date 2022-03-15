@@ -1,3 +1,9 @@
+#### Version 1.1.0 (2022-03-15) ####
+- Fixed issue with double-scaling the Voronoi diagram.
+- "RPE Cell Detection" -> "RPE Detection".
+- Added paper citation to About and Help windows, as well as to README.md.
+- Hyperlinks in About box. 
+
 #### Version 1.1.0 (2022-03-14) ####
 - Added "Voronoi" button in the toolbar to toggle Voronoi Diagram display.
 - Added "Restore Defaults" button to the Detection Settings dialog.
