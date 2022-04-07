@@ -15,17 +15,10 @@ import AOImageView
 from AOImageView import MouseOp
 import AOFileIO
 import AOMethod
-import AOSettingsDialog
-from AOSettingsDialog import ao_parameter_dialog
-from AOSettingsDialog import ao_progress_dialog, ao_loc_dialog
-from AOSettingsDialog import display_error, display_warning
+from AOSettingsDialog import *
+from AODisplay import ao_display_settings
+from AOSnap import ao_snap_dialog
 import AOConfig as cfg
-
-BASE_DIR = os.path.dirname(__file__)
-ICONS_DIR = os.path.join(BASE_DIR, 'Icons')
-HELP_DIR = os.path.join(BASE_DIR, 'Help')
-def qt_icon(name):
-    return QtGui.QIcon(os.path.join(ICONS_DIR, name))
 
 _big_icon = QtCore.QUrl.fromLocalFile(os.path.join(ICONS_DIR, 'RPE_Detection256x256.png'))
 about_html = '''
@@ -66,38 +59,6 @@ class AboutDialog(QtWidgets.QDialog):
         self.setLayout(layout)
 #
 
-def display_error(err, ex):
-    msg = QtWidgets.QMessageBox()
-    msg.setIcon(QtWidgets.QMessageBox.Critical)
-    if isinstance(ex, Exception):
-        msg.setText('Exception:')
-    else:
-        msg.setText('Error:')
-    msg.setInformativeText(str(ex))
-    msg.setWindowTitle(err)
-    msg.exec_()
-#
-    
-def askYesNo(title, text, detail=None):
-    b = QtWidgets.QMessageBox()
-    b.setIcon(QtWidgets.QMessageBox.Question)
-    b.setWindowTitle(title)
-    b.setText(text)
-    if detail:
-         b.setInformativeText(detail)
-    #
-    b.setStandardButtons(QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
-    b.setDefaultButton(QtWidgets.QMessageBox.Yes)
-    #
-    geom = QtWidgets.QApplication.primaryScreen().geometry()
-    spacer = QtWidgets.QSpacerItem(geom.width()*20//100, 1,
-            QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Minimum)
-    l = b.layout()
-    l.addItem(spacer, l.rowCount(), 0, 1, l.columnCount())
-    #
-    return b.exec_() == QtWidgets.QMessageBox.Yes
-#
-
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self, parent=None):
         super(MainWindow, self).__init__(parent)
@@ -106,6 +67,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         cfg.main_wnd = self
 
+        self._mute = True
         self._input_data = {
             'RPE image file paths': [],
             'RPE image names': [],
@@ -145,6 +107,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._detection_para_dlg = ao_parameter_dialog(self)
         self._detection_para_dlg.setMinimumSize(geom.width()/5, geom.height()/3)
+        self._display_settings_dlg = ao_display_settings(self, contour_settings=False)
+        self._display_settings_dlg.changed.connect(self._on_display_settings)
         self._progress_dlg = ao_progress_dialog(self)
         self._progress_dlg.setMinimumWidth(geom.width()/5)
         self._file_io = AOFileIO.ao_fileIO()
@@ -159,21 +123,19 @@ class MainWindow(QtWidgets.QMainWindow):
         
         self.loadState()
         self.setAcceptDrops(True)
+        self._mute = False
     #
     def loadState(self):
         try:
             with open(self.state_file, 'r') as fi:
                 jobj = json.load(fi)
+            if 'displaySettings' in jobj:
+                self._image_view.displaySettings = jobj['displaySettings']
             self._detection_para_dlg.set_state(jobj['detection_para'])
             if 'loadDir' in jobj:
                 self.loadDir = QtCore.QDir(jobj['loadDir'])
             if 'saveDir' in jobj:
                 self.saveDir = QtCore.QDir(jobj['saveDir'])
-            if 'annotation_size' in jobj:
-                self._annotation_size_input.setValue(int(jobj['annotation_size']))
-            if 'voronoi' in jobj:
-                self._image_view.voronoi = bool(jobj['voronoi'])
-                self.voronoi_act.setChecked(self._image_view.voronoi)
         except Exception:
             pass
         self.save_ok = True
@@ -190,8 +152,7 @@ class MainWindow(QtWidgets.QMainWindow):
         try:
             jobj = {
                 'detection_para': self._detection_para_dlg.get_state(),
-                'annotation_size': self._annotation_size_input.value(),
-                'voronoi': self._image_view.voronoi,
+                'displaySettings': self._image_view.displaySettings,
             }
             if not ldir is None:
                 jobj['loadDir'] = ldir
@@ -229,7 +190,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._file_list.currentRowChanged.connect(self._file_list_row_changed)
 
         vtkWidget = QVTKRenderWindowInteractor(frame)
-        self._image_view = AOImageView.ao_visualization(vtkWidget, self._mouse_status)
+        self._image_view = AOImageView.ao_visualization(vtkWidget, auto_tolerance=True)
         
         flist_layout = Qt.QVBoxLayout()
         flist_layout.addWidget(self._file_list, 4)
@@ -246,29 +207,41 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _setup_menu(self):
         self.open_image_act = QtWidgets.QAction('Open Images...', self, shortcut=QtGui.QKeySequence.Open,
-                                      icon=qt_icon('open'),
-                                      statusTip='Open RPE images/annotations',
-                                      triggered=self._open_images)
+                    icon=qt_icon('open'),
+                    statusTip='Open RPE images/annotations',
+                    triggered=self._open_images)
 
         self.open_annotation_act = QtWidgets.QAction('Open Annotations...', self,
-                                       icon=qt_icon('open_document1'),
-                                       statusTip='Open RPE annotations', triggered=self._open_annotations)
+                    icon=qt_icon('open_document1'),
+                    statusTip='Open RPE annotations', triggered=self._open_annotations)
 
         self.save_data_act = QtWidgets.QAction('Save Annotations...', self, shortcut=QtGui.QKeySequence.Save,
-                                      icon=qt_icon('save'),
-                                      statusTip='Save RPE annotations', triggered=self._save_data)
+                    icon=qt_icon('save'),
+                    statusTip='Save RPE annotations', triggered=self._save_data)
 
         self.delete_all_act = QtWidgets.QAction('Delete Annotations', self,
-                                      statusTip='Delete all RPE annotations on current image', triggered=self._delete_all)
+                    statusTip='Delete all RPE annotations on current image', triggered=self._delete_all)
 
         quit = QtWidgets.QAction('Exit', self, shortcut=QtGui.QKeySequence.Quit,
-                                 statusTip="Quit the application",
-                                 triggered=self._quit)
+                    statusTip="Quit the application",
+                    triggered=self._quit)
         
         self.toggle_visibility = QtWidgets.QAction('Annotation Visibility', self, shortcut='F2',
+                    iconText='Show', icon=qt_icon('fovea'),
                     checkable=True, checked=True,
-                    statusTip='Toggle Annotation Visibility (F2)',
+                    statusTip='Show/Hide all annotations (F2)',
+                    toolTip='Show/Hide all annotations (F2)',
                     triggered=self._toggle_visibility)
+
+        self.voronoi_act = QtWidgets.QAction('Voronoi', shortcut='Ctrl+V',
+                icon=qt_icon('Voronoi'), statusTip='Toggle Voronoi Diagram display (Ctrl+V)',
+                checkable=True, checked=False,
+                triggered=self._toggle_voronoi)
+
+        self.toggle_interpolation = QtWidgets.QAction('Image Interpolation', self, shortcut='Ctrl+I',
+                    checkable=True, checked=True,
+                    statusTip='Toggle Image Scale Pixel Interpolation (Ctrl+I)',
+                    triggered=self._toggle_interpolation)
 
         self.reset_brightness_contrast = QtWidgets.QAction('Reset Image View', self, shortcut='F10',
                     statusTip='Reset Image View to the original size, position, brightness/contrast, etc.',
@@ -289,9 +262,19 @@ class MainWindow(QtWidgets.QMainWindow):
         
         view_menu = self.menuBar().addMenu("&View")
         view_menu.addAction(self.toggle_visibility)
-        view_menu.addAction(self.reset_brightness_contrast)
+        view_menu.addAction(self.voronoi_act)
+        view_menu.addAction(self.toggle_interpolation)
         view_menu.addSeparator()
+        view_menu.addAction(self.reset_brightness_contrast)
         view_menu.addAction(self.data_loc_act)
+        view_menu.addSeparator()
+
+        self.snap_annotated_act = QtWidgets.QAction('Snapshot...', self, shortcut='F7',
+                    icon=qt_icon('camera'),
+                    statusTip='Take a snapshot of the current image with annotations (F7)',
+                    toolTip='Take a snapshot of the current image with annotations (F7)',
+                    triggered=self._snap_annotated)
+        view_menu.addAction(self.snap_annotated_act)
 
         self.about_act = QtWidgets.QAction('About', self,
                     icon=qt_icon('about'),
@@ -385,34 +368,15 @@ class MainWindow(QtWidgets.QMainWindow):
                 triggered=self._undo)
         settings_bar.addAction(self.undo_act)
         settings_bar.addSeparator()
-
-        self.voronoi_act = QtWidgets.QAction('Voronoi', shortcut='Ctrl+V',
-                icon=qt_icon('Voronoi'), toolTip='Toggle Voronoi Diagram display',
-                checkable=True, checked=False,
-                triggered=self._toggle_voronoi)
-        settings_bar.addAction(self.voronoi_act)
-
-        detection_setup_group = QtWidgets.QGroupBox()
-        detection_setup_layout = QtWidgets.QGridLayout()
-        self.annotation_pts_checkbox = \
-            annotation_pts_checkbox = QtWidgets.QCheckBox('Annotation visibility')
-        annotation_pts_checkbox.setChecked(True)
-        annotation_pts_checkbox.stateChanged.connect(self._set_annotation_points_visibility)
-
-        annotation_size_label = QtWidgets.QLabel('Annotation Size: ')
-        self._annotation_size_input = QtWidgets.QSpinBox()
-        self._annotation_size_input.setMinimum(1)
-        self._annotation_size_input.setMaximum(100)
-        self._annotation_size_input.setValue(12)
-        self._annotation_size_input.valueChanged.connect(self._set_annotation_points_size)
-        detection_setup_layout.addWidget(annotation_pts_checkbox, 0, 0, 1, 2)
-        detection_setup_layout.addWidget(annotation_size_label, 1, 0)
-        detection_setup_layout.addWidget(self._annotation_size_input, 1, 1)
-        detection_setup_group.setLayout(detection_setup_layout)
-
-        settings_bar.addWidget(detection_setup_group)
+        #
+        settings_bar.addAction(self.toggle_visibility)
+        self.disp_act = QtWidgets.QAction('Settings', shortcut='F5',
+                icon=qt_icon('settings'), toolTip='Change Display Settings (F5)',
+                triggered=self._show_display_settings)
+        settings_bar.addAction(self.disp_act)
+        settings_bar.addAction(self.snap_annotated_act)
         settings_bar.addSeparator()
-
+        #
         self.detect_act = QtWidgets.QAction('Detect', self, shortcut='Ctrl+G',
                 icon=qt_icon('fovea'),
                 toolTip='Detect RPE cells (Ctrl+G)', 
@@ -504,6 +468,22 @@ class MainWindow(QtWidgets.QMainWindow):
             self.saveState()
             
         self._status_bar.showMessage(img_dir)
+    #
+    def _snap_annotated(self):
+        if len(self._input_data['RPE images']) == 0: return
+        if self._cur_img_id == -1:
+            return
+        dlg = ao_snap_dialog(parent=self)
+        dlg.setWindowTitle(self._input_data['RPE image names'][self._cur_img_id]+' - Snapshot')
+        dlg.setWindowIcon(qt_icon('RPE_Detection.png'))
+        dlg.setImageData(
+            self._input_data['RPE image file paths'][self._cur_img_id],
+            img_data=self._input_data['RPE images'][self._cur_img_id],
+            displaySettings=self._image_view.displaySettings,
+            colorInfo=self._image_view.color_info,
+        )
+        dlg.setPoints(self._input_data['RPE annotations'][self._cur_img_id])
+        dlg.exec_()
     #
     def _open_images(self):
         file_dialog = QtWidgets.QFileDialog(self)
@@ -612,7 +592,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._image_view.set_image_name(history_file_name)
         self._image_view.reset_view(True)
         self._image_view.color_info = self._input_data['colors'][idx]
-        self.annotation_pts_checkbox.setChecked(True)
+        self._image_view.visibility = True
+        self._sync_display_controls()
     #
     def _detect_RPE_cells(self):
         #res = AOSettingsDialog.display_warning('Detecting RPE cells', 'Do you really want to detect cells?')
@@ -683,11 +664,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self._progress_dlg.set_progress(0);
         QtWidgets.QApplication.restoreOverrideCursor()
         self._progress_dlg.hide()
-        self.annotation_pts_checkbox.setChecked(True)
+        self._image_view.visibility = True
+        self._sync_display_controls()
 
     def _save_data(self):
-        if len(self._input_data['RPE images']) == 0:
-            return
+        if len(self._input_data['RPE images']) == 0: return
         try:
             try:
                 sdir = self.saveDir.canonicalPath()
@@ -711,7 +692,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 'You are about to delete all annotations \non the current image.',
                 detail='This operation can not be undone. \nContinue?'):
             return
-        self.annotation_pts_checkbox.setChecked(True)
+        self._image_view.visibility = True
+        self._sync_display_controls()
         self._input_data['RPE annotations'][id] = []
         history_file_name = self.hist.get_history_file(self._input_data['RPE image file paths'][id])
         self._file_io.write_points(history_file_name, self._input_data['RPE annotations'][id],
@@ -720,7 +702,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self._image_view.set_annotations(self._input_data['RPE annotations'][id])
         self._image_view.reset_view(False)
 
-
     def _quit(self, event):
         self.close()
 
@@ -728,27 +709,37 @@ class MainWindow(QtWidgets.QMainWindow):
         self._mouse_status = m
         self._image_view.set_mouse_mode(self._mouse_status)
 
+    def _sync_display_controls(self):
+        self._mute = True
+        self.toggle_interpolation.setChecked(self._image_view.interpolation)
+        self.voronoi_act.setChecked(self._image_view.voronoi)
+        self.toggle_visibility.setChecked(self._image_view.visibility)
+        self._mute = False
+    def _on_display_settings(self, param):
+        self._image_view.displaySettings = param
+        self._sync_display_controls()
+        self._image_view.reset_view(False)
+    #
     def _undo(self):
+        self._image_view.visibility = True
+        self._sync_display_controls()
         self._image_view.undo()
-
-    def _set_annotation_points_visibility(self, state):
-        self._image_view.annotation_pts_visibility = state
-        self._image_view.reset_view()
-        self.toggle_visibility.setChecked(state)
-
-    def _set_annotation_points_size(self):
-        self._image_view.set_annotation_pts_size(self._annotation_size_input.value())
-        self._image_view.reset_view()
-        self.saveState()
-        
+    #
     def _toggle_visibility(self):
-        state = 0 if self._image_view.annotation_pts_visibility else 1
-        self.annotation_pts_checkbox.setChecked(state)
-        
+        if not self._mute:
+            self._image_view.visibility = self.toggle_visibility.isChecked()
+    #
+    def _toggle_interpolation(self):
+        if not self._mute:
+            self._image_view.interpolation = self.toggle_interpolation.isChecked()
+            self._image_view.reset_view()
+            self.saveState()
+    #
     def _toggle_voronoi(self):
-        self._image_view.voronoi = self.voronoi_act.isChecked()
-        self.saveState()
-    
+        if not self._mute:
+            self._image_view.voronoi = self.voronoi_act.isChecked()
+            self.saveState()
+    #
     def _reset_brightness_contrast(self):
         self._image_view.reset_color()
         if self._cur_img_id >= 0:
@@ -761,3 +752,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _show_settigns_dialog(self):
         self._settings.show()
+    def _show_display_settings(self, e):
+        self._display_settings_dlg.displaySettings = self._image_view.displaySettings
+        self._display_settings_dlg.exec_()
+        self.saveState()
+    #

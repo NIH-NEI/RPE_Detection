@@ -7,9 +7,10 @@ dependencies:
 - scipy==1.4.1
 - tensorflow==1.10
 - keras==2.1.3
-- mkl=2020.0
+- mkl==2020.0
+- imageio==2.9
 - scikit-image==0.16.2
-- matplotlib
+- matplotlib==3.1.3
 - pyinstaller==3.6
 - pip:
   - vtk==8.1

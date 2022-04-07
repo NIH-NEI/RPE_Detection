@@ -60,15 +60,39 @@ thead th {
         </thead>
         <tbody>
             <tr>
+                <td>N/A</td>
+                <td>Delete Annotations</td>
+                <td>Delete all annotations on the current image.</td>
+            </tr>
+            <tr>
                 <td><b>F1</b></td>
                 <td><img src="../Icons/help.png" width=32 height=32 />&nbsp;Keyboard&nbsp;Shortcuts...</td>
                 <td>Display this help screen.</td>
             </tr>
             <tr>
                 <td><b>F2</b></td>
-                <td>Toggle Visibility</td>
-                <td>Temporarily switch off/on marker visibility.
-                Visibility is automatically restored when you open images or detect RPE cells.</td>
+                <td><img src="../Icons/fovea.png" width=32 height=32 />&nbsp;Show</td>
+                <td>Toggle Visibility: temporarily switch off/on visibility of annotations
+                (RPE markers, Voronoi diagram).
+                Visibility is automatically restored when you open or detect images, undo an operation,
+                switch to a different mouse mode, or change display settings.</td>
+            </tr>
+            <tr>
+                <td><b>F5</b></td>
+                <td><img src="../Icons/settings.png" width=32 height=32 />&nbsp;Settings</td>
+                <td>Open a dialog to change display settings &mdash; visibility, colors and sizes of annotations
+                (markers, Voronoi diagram), and image pixel interpolation for scaling.
+                Any changes take effect immediately.</td>
+            </tr>
+            <tr>
+                <td><b>F7</b></td>
+                <td><img src="../Icons/camera.png" width=32 height=32 />&nbsp;Snapshot...</td>
+                <td>Open a preview dialog displaying current image with annotations.
+                Display settings are inherited from the main picture, but you can adjust them using
+                the &ldquo;Settings&rdquo; button. These changes do not affect the main image display.
+                Once you are done with the display settings, select the desired output image size/scale,
+                then click the &ldquo;Save&rdquo; button.
+                You will be asked for a .png file name to save the snapshot to.</td>
             </tr>
             <tr>
                 <td><b>F10</b></td>
@@ -100,11 +124,6 @@ thead th {
                 <td><b>Ctrl+S</b></td>
                 <td><img src="../Icons/save.png" width=32 height=32 />&nbsp;Save Annotations...</td>
                 <td>Save RPE detection results of all open images.</td>
-            </tr>
-            <tr>
-                <td><b>&nbsp;</b></td>
-                <td>Delete Annotations</td>
-                <td>Delete all RPE cell markers (annotations) on the current image.</td>
             </tr>
             <tr>
                 <td><b>Ctrl+L</b></td>

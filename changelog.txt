@@ -1,3 +1,12 @@
+#### Version 1.1.1 (2022-04-07) ####
+- Added "Settings" tool button (shortcut: F7). It opens a dialog to change display settings -
+  visibility, colors and sizes of annotations (markers, Voronoi diagram), and image pixel interpolation for scaling.
+- Added "Snapshot..." menu (under "View") and tool button (shortcut: F5). It opens a preview dialog
+  displaying current image with annotations. Display settings are inherited from the main picture,
+  but you can adjust them using the "Settings" button. These changes do not affect the main image display.
+  Once you are done with the display settings, select the desired output image size/scale, then click the "Save" button.
+  You will be asked for a .png file name to save the snapshot to.
+
 #### Version 1.1.0 (2022-03-15) ####
 - Fixed issue with double-scaling the Voronoi diagram.
 - "RPE Cell Detection" -> "RPE Detection".

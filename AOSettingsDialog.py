@@ -1,3 +1,6 @@
+__all__ = ('BASE_DIR', 'ICONS_DIR', 'HELP_DIR', 'qt_icon', 'display_error', 'display_warning', 'askYesNo',
+        'ao_progress_dialog', 'ao_loc_dialog', 'ao_parameter_dialog',)
+
 import os
 import sys
 import time
@@ -6,6 +9,16 @@ import traceback
 import AOImageView
 
 from PyQt5 import QtCore, QtWidgets, QtGui
+
+if hasattr(sys, '_MEIPASS'):
+    BASE_DIR = sys._MEIPASS
+else:
+    BASE_DIR = os.path.dirname(__file__)
+ICONS_DIR = os.path.join(BASE_DIR, 'Icons')
+HELP_DIR = os.path.join(BASE_DIR, 'Help')
+
+def qt_icon(name):
+    return QtGui.QIcon(os.path.join(ICONS_DIR, name))
 
 def display_error(msg, msg2):
     b = QtWidgets.QMessageBox()
@@ -31,6 +44,25 @@ def display_warning(msg, msg2):
 
     return b.exec_()
 
+def askYesNo(title, text, detail=None):
+    b = QtWidgets.QMessageBox()
+    b.setIcon(QtWidgets.QMessageBox.Question)
+    b.setWindowTitle(title)
+    b.setText(text)
+    if detail:
+         b.setInformativeText(detail)
+    #
+    b.setStandardButtons(QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
+    b.setDefaultButton(QtWidgets.QMessageBox.Yes)
+    #
+    geom = QtWidgets.QApplication.primaryScreen().geometry()
+    spacer = QtWidgets.QSpacerItem(geom.width()*20//100, 1,
+            QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Minimum)
+    l = b.layout()
+    l.addItem(spacer, l.rowCount(), 0, 1, l.columnCount())
+    #
+    return b.exec_() == QtWidgets.QMessageBox.Yes
+#
 class ao_progress_dialog(QtWidgets.QDialog):
     def __init__(self, parent=None):
         super(ao_progress_dialog, self).__init__(parent)
@@ -49,7 +81,7 @@ class ao_progress_dialog(QtWidgets.QDialog):
     def set_progress(self, val):
         self._progressbar.setValue(val)
         QtWidgets.QApplication.processEvents()
-
+        
 class ao_loc_dialog(QtWidgets.QDialog):
     def __init__(self, parent=None):
         super(ao_loc_dialog, self).__init__(parent)

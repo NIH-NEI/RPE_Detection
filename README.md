@@ -15,7 +15,7 @@
 		pages={3520-3528},
 		doi={10.1109/JBHI.2020.3004271}}
 
-<img src="assets/app_main.png" width="524" height="360" />
+<img src="assets/app_main.png" width="612" height="360" />
 
 ---------------
 
