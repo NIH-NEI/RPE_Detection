@@ -1,5 +1,5 @@
 
-!define VERSION "1.1.1"
+!define VERSION "1.1.2"
 !define PATCH  "1"
 !define INST_DIR "dist\RPE_Detection"
 
@@ -11,8 +11,8 @@ Var START_MENU
 InstallDir $PROGRAMFILES64\RPE_Detection
  
 ;define installer name
-Name "RPE Detection 1.1.1"
-OutFile "dist\RPE_Detection-1.1.1-win64.exe"
+Name "RPE Detection 1.1.2"
+OutFile "dist\RPE_Detection-1.1.2-win64.exe"
 
 ;SetCompressor lzma
 
@@ -66,7 +66,7 @@ Push "DisplayName"
 Push "RPE Detection"
 Call ConditionalAddToRegisty
 Push "DisplayVersion"
-Push "1.1.1"
+Push "1.1.2"
 Call ConditionalAddToRegisty
 Push "Publisher"
 Push "National Eye Institute"

@@ -9,6 +9,7 @@ import traceback
 import AOImageView
 
 from PyQt5 import QtCore, QtWidgets, QtGui
+from segmentation_models.backbones import backbones as smbb
 
 if hasattr(sys, '_MEIPASS'):
     BASE_DIR = sys._MEIPASS
@@ -16,6 +17,7 @@ else:
     BASE_DIR = os.path.dirname(__file__)
 ICONS_DIR = os.path.join(BASE_DIR, 'Icons')
 HELP_DIR = os.path.join(BASE_DIR, 'Help')
+MODEL_WEIGHTS_DIR = os.path.join(BASE_DIR, 'model_weights')
 
 def qt_icon(name):
     return QtGui.QIcon(os.path.join(ICONS_DIR, name))
@@ -150,12 +152,19 @@ class ao_parameter_dialog(QtWidgets.QDialog):
         self.setSizeGripEnabled(True)
         self.save_geom = None
         #
+        geom = QtWidgets.QApplication.primaryScreen().geometry()
+        self.resize(geom.width()*36/100, geom.height()*45/100)
+        #
+        self._mute = False
+        self._builtin_map = {}
+        #
         self.normal = QtGui.QFont(self.font())
         self.bold = QtGui.QFont(self.normal)
         self.bold.setBold(True)
         #
-        self._detection_weights = None
         self._setup_layout()
+        #
+        self._update_builtin_weights()
     #
     def hideEvent(self, e):
         self.save_geom = self.geometry()
@@ -167,9 +176,30 @@ class ao_parameter_dialog(QtWidgets.QDialog):
     #
     def _setup_layout(self):
         self.setWindowTitle('RPE detection')
-        detection_method_label = QtWidgets.QLabel('Detection methods:')
-        self._detection_method_box = QtWidgets.QComboBox()
-        #self._detection_method_box.currentIndexChanged.connect(self._select_detection_method)
+        
+        ml_panel = QtWidgets.QGroupBox('Machine Learning Model Weights')
+        ml_layout = QtWidgets.QGridLayout()
+        ml_panel.setLayout(ml_layout)
+        self.rb_builtin = QtWidgets.QRadioButton('Built-in:')
+        ml_layout.addWidget(self.rb_builtin, 0, 0)
+        
+        self.cb_builtin = QtWidgets.QComboBox()
+        ml_layout.addWidget(self.cb_builtin, 0, 1, 1, 2)
+        
+        self.rb_custom = QtWidgets.QRadioButton('Custom:')
+        ml_layout.addWidget(self.rb_custom, 1, 0)
+        self.txCustomWeights = QtWidgets.QLineEdit()
+        self.txCustomWeights.setReadOnly(True)
+        ml_layout.addWidget(self.txCustomWeights, 1, 1)
+        self.btnBrowse = QtWidgets.QPushButton('Browse')
+        ml_layout.addWidget(self.btnBrowse, 1, 2)
+        self.rb_builtin.setChecked(True)
+        
+        bblist = ', '.join(sorted(smbb.backbones.keys()))
+        ml_tip_lb = QtWidgets.QLabel('Note: Model Weights file name must be formatted as "*_<backbone>[_voronoi].h5"\n'+
+            'Possible values for <backbone> are: '+bblist)
+        ml_tip_lb.setStyleSheet('color: #333366')
+        ml_layout.addWidget(ml_tip_lb, 2, 0, 1, 3)
 
         probability_label = QtWidgets.QLabel('Probability threshold:')
         self._probability_threshold_input = QtWidgets.QDoubleSpinBox()
@@ -213,8 +243,8 @@ class ao_parameter_dialog(QtWidgets.QDialog):
         view_layout.setColumnStretch(2, 10)
         view_layout.addWidget(self.imageTable, 0, 0, 1, 3)
 
-        view_layout.addWidget(detection_method_label, 1, 0)
-        view_layout.addWidget(self._detection_method_box, 1, 1)
+        view_layout.addWidget(ml_panel, 1, 0, 1, 3)
+        
         view_layout.addWidget(probability_label, 2, 0)
         view_layout.addWidget(self._probability_threshold_input, 2, 1)
         view_layout.addWidget(clustering_radius_label, 3, 0)
@@ -226,17 +256,23 @@ class ao_parameter_dialog(QtWidgets.QDialog):
         view_layout.addWidget(self.defBtn, 5, 0)
         self.defBtn.clicked.connect(self.restoreDefaults)
         
-        view_layout.addWidget(self.buttonbox, 6, 0, 1, 2)
+        view_layout.addWidget(self.buttonbox, 6, 0, 1, 3)
         self.setLayout(view_layout)
+        #
+        self.btnBrowse.clicked.connect(self._on_browse_custom)
+        self.rb_custom.toggled.connect(self._handle_custom_rb)
     #
     def restoreDefaults(self):
+        self._mute = True
         self._probability_threshold_input.setValue(0.5)
         self._clustering_radius_input.setValue(20)
         self._fov_input.setText('0.75')
         try:
-            self._detection_method_box.setCurrentIndex(0)
+            self.cb_builtin.setCurrentIndex(0)
         except Exception:
             pass
+        self.rb_builtin.setChecked(True)
+        self._mute = False
     #
     def SetImageList(self, items):
         self.imageTable.setRowCount(len(items))
@@ -270,42 +306,146 @@ class ao_parameter_dialog(QtWidgets.QDialog):
         if len(self.checkedRows()) > 0:
             QtWidgets.QDialog.accept(self)
     #
-    def set_detection_weights(self, weights):
-        self._detection_weights = weights
-
-        for method in sorted(self._detection_weights.keys()):
-            self._detection_method_box.addItem(method)
-
-    def get_probablity_threshold(self):
-        return self._probability_threshold_input.value()
-
-    def get_clustering_radius(self):
-        return self._clustering_radius_input.value()
-
-    def get_current_detection_method(self):
-        return self._detection_method_box.currentText()
-    
-    def get_image_fov(self):
-        return float(self._fov_input.text())
+    def _update_builtin_weights(self):
+        cdir = MODEL_WEIGHTS_DIR
+        self._builtin_map.clear()
+        for fn in os.listdir(cdir):
+            fpath = os.path.join(cdir, fn)
+            if not os.path.isfile(fpath): continue
+            bn, ext = os.path.splitext(fn)
+            if ext.lower() == '.h5':
+                self._builtin_map[bn] = fpath
+        self.cb_builtin.clear()
+        for method in sorted(self._builtin_map.keys()):
+            self.cb_builtin.addItem(method)
+    def update_builtin_weights(self):
+        save_name = self.builtin_weights
+        self._update_builtin_weights()
+        self.builtin_weights = save_name
     #
-    def set_state(self, jobj):
+    def _handle_custom_rb(self, st):
+        if self._mute: return
+        if self.custom:
+            try:
+                ok = os.path.isfile(self.custom_weights)
+            except Exception:
+                ok = False
+            if not ok:
+                self._browse_custom()
+        self.cb_builtin.setEnabled(not self.custom)
+    #
+    def _on_browse_custom(self):
+        self._mute = True
+        self.custom = True
+        self._mute = False
+        self._browse_custom()
+    #
+    def _validate_custom(self):
+        if self.custom and not self.custom_weights:
+            self._mute = True
+            self.custom = False
+            self._mute = False
+    #
+    def _browse_custom(self):
+        cdir = os.path.dirname(self.custom_weights) if self.custom_weights else QtCore.QDir.home()
+        file_dialog = QtWidgets.QFileDialog(self)
+        file_dialog.setNameFilters(["Trained ML model weights (*.h5)"])
+        file_dialog.selectNameFilter('')
+        file_dialog.setWindowTitle('Browse Trained ML Model Weights')
+        file_dialog.setFileMode(QtWidgets.QFileDialog.ExistingFile)
+        file_dialog.setLabelText(QtWidgets.QFileDialog.Accept, 'Select')
+        file_dialog.setDirectory(cdir)
+        rc = file_dialog.exec_()
+        if not rc:
+            self._validate_custom()
+            return
+        flist = file_dialog.selectedFiles()
+        if len(flist) < 1:
+            self._validate_custom()
+            return
+        self.custom_weights = os.path.abspath(flist[0])
+    #
+    @property
+    def custom(self):
+        return self.rb_custom.isChecked()
+    @custom.setter
+    def custom(self, st):
+        self.rb_builtin.setChecked(not st)
+        self.cb_builtin.setEnabled(not st)
+        self.rb_custom.setChecked(st)
+    #
+    @property
+    def custom_weights(self):
+        return self.txCustomWeights.text()
+    @custom_weights.setter
+    def custom_weights(self, v):
+        self.txCustomWeights.setText(v)
+        self.txCustomWeights.setToolTip(v)
+    #
+    @property
+    def builtin_weights(self):
+        return self.cb_builtin.currentText()
+    @builtin_weights.setter
+    def builtin_weights(self, v):
+        if v in self._builtin_map:
+            self.cb_builtin.setCurrentText(v)
+    #
+    @property
+    def probablity_threshold(self):
+        return self._probability_threshold_input.value()
+    @probablity_threshold.setter
+    def probablity_threshold(self, v):
         try:
-            if 'probability_threshold' in jobj:
-                self._probability_threshold_input.setValue(float(jobj['probability_threshold']))
-            if 'clustering_radius' in jobj:
-                self._clustering_radius_input.setValue(int(jobj['clustering_radius']))
-            if 'image_fov' in jobj:
-                self._fov_input.setText(str(jobj['image_fov']))
-            if 'detection_method' in jobj:
-                self._detection_method_box.setCurrentText(jobj['detection_method'])
+            self._probability_threshold_input.setValue(float(v))
         except Exception:
             pass
-    def get_state(self):
-        jobj = {
-            'probability_threshold': self.get_probablity_threshold(),
-            'clustering_radius': self.get_clustering_radius(),
-            'image_fov': self.get_image_fov(),
-            'detection_method': self.get_current_detection_method(),
-        }
-        return jobj
+    #
+    @property
+    def clustering_radius(self):
+        return self._clustering_radius_input.value()
+    @clustering_radius.setter
+    def clustering_radius(self, v):
+        try:
+            self._clustering_radius_input.setValue(int(v))
+        except Exception:
+            pass
+    #
+    @property
+    def image_fov(self):
+        return float(self._fov_input.text())
+    @image_fov.setter
+    def image_fov(self, v):
+        try:
+            v = float(v)
+            self._fov_input.setText(str(v))
+        except Exception:
+            pass
+    #
+    @property
+    def model_weights(self):
+        if self.custom:
+            fpath = self.custom_weights
+            if not fpath or not os.path.isfile(fpath):
+                return None
+            name, ext = os.path.splitext(os.path.basename(fpath))
+            return name, fpath
+        name = self.builtin_weights
+        if name in self._builtin_map:
+            return name, self._builtin_map[name]
+        return None
+    #
+    STATE_ATTRIBUTES = ('custom', 'custom_weights', 'builtin_weights', 'probablity_threshold',
+        'clustering_radius', 'image_fov',)
+    @property
+    def state(self):
+        return dict([(a, getattr(self,a)) for a in self.STATE_ATTRIBUTES])
+    @state.setter
+    def state(self, jobj):
+        self._mute = True
+        for a in self.STATE_ATTRIBUTES:
+            if a in jobj:
+                setattr(self, a, jobj[a])
+        if self.custom and self.model_weights is None:
+            self.custom = False
+        self._mute = False
     #

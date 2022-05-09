@@ -10,5 +10,5 @@ osascript MacOS/DMGSetup.scpt RPE_Detection
 hdiutil detach /Volumes/RPE_Detection
 python MacOS/licenseDMG.py dist/RPE_Detection-Darwin0.dmg Help/License.txt
 rm dist/RPE_Detection-1.1.0-Darwin.dmg
-hdiutil convert dist/RPE_Detection-Darwin0.dmg -format UDZO -o dist/RPE_Detection-1.1.1-Darwin.dmg
+hdiutil convert dist/RPE_Detection-Darwin0.dmg -format UDZO -o dist/RPE_Detection-1.1.2-Darwin.dmg
 rm dist/RPE_Detection-Darwin0.dmg

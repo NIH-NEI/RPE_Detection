@@ -85,6 +85,16 @@ class ao_display_settings(QtWidgets.QDialog):
         voronoiLayout.setHorizontalSpacing(32)
         voronoiPane.setLayout(voronoiLayout)
         #
+        imagePane = QtWidgets.QGroupBox('Source Image Settings')
+        view_layout.addWidget(imagePane, 1, 0, 1, 3)
+        imageLayout = QtWidgets.QGridLayout()
+        imageLayout.setColumnStretch(0, 1)
+        imageLayout.setColumnStretch(1, 0)
+        imageLayout.setColumnStretch(2, 0)
+        imageLayout.setColumnStretch(3, 0)
+        imageLayout.setHorizontalSpacing(32)
+        imagePane.setLayout(imageLayout)
+        #
         if self.contour_settings:
             self.cbContVisible = QtWidgets.QCheckBox('Visible', stateChanged=lambda x: self.handleChange())
             contLayout.addWidget(self.cbContVisible, 0, 0, 1, 3)
@@ -93,7 +103,7 @@ class ao_display_settings(QtWidgets.QDialog):
             self.spContWidth = QtWidgets.QDoubleSpinBox(valueChanged=lambda x: self.handleChange())
             self.spContWidth.setMinimum(0.5)
             self.spContWidth.setSingleStep(0.5)
-            self.spContWidth.setMaximum(15.)
+            self.spContWidth.setMaximum(25.)
             self.spContWidth.setValue(2.)
             contLayout.addWidget(self.spContWidth, 1, 1, 1, 2)
             lbContColor = QtWidgets.QLabel('Color:')
@@ -107,7 +117,7 @@ class ao_display_settings(QtWidgets.QDialog):
         glyphLayout.addWidget(lbGlyphWidth, 1, 0)
         self.spGlyphWidth = QtWidgets.QDoubleSpinBox(valueChanged=lambda x: self.handleChange())
         self.spGlyphWidth.setMinimum(0.5)
-        self.spGlyphWidth.setMaximum(25.)
+        self.spGlyphWidth.setMaximum(250.)
         self.spGlyphWidth.setSingleStep(0.5)
         self.spGlyphWidth.setValue(4.)
         glyphLayout.addWidget(self.spGlyphWidth, 1, 1, 1, 2)
@@ -123,7 +133,7 @@ class ao_display_settings(QtWidgets.QDialog):
         self.spVoronoiWidth = QtWidgets.QDoubleSpinBox(valueChanged=lambda x: self.handleChange())
         self.spVoronoiWidth.setMinimum(0.5)
         self.spVoronoiWidth.setSingleStep(0.5)
-        self.spVoronoiWidth.setMaximum(15.)
+        self.spVoronoiWidth.setMaximum(25.)
         self.spVoronoiWidth.setValue(2.)
         voronoiLayout.addWidget(self.spVoronoiWidth, 1, 1, 1, 2)
         lbVoronoiColor = QtWidgets.QLabel('Color:')
@@ -132,7 +142,15 @@ class ao_display_settings(QtWidgets.QDialog):
         voronoiLayout.addWidget(self.btVoronoiColor, 2, 2)
         #
         self.cbPix = QtWidgets.QCheckBox('Pixel Interpolation', stateChanged=lambda x: self.handleChange())
-        view_layout.addWidget(self.cbPix, 1, 0, 1, 3)
+        imageLayout.addWidget(self.cbPix, 0, 0)
+        self.cbImageVisible = QtWidgets.QCheckBox('Visible', stateChanged=lambda x: self.handleChange())
+        self.cbImageVisible.setChecked(True)
+        imageLayout.addWidget(self.cbImageVisible, 0, 1)
+        lbBkgColor = QtWidgets.QLabel('Background:')
+        imageLayout.addWidget(lbBkgColor, 0, 2)
+        self.btBkgColor = AoColorButton(onchange=lambda x: self.handleChange())
+        self.btBkgColor.color = '#000000'
+        imageLayout.addWidget(self.btBkgColor, 0, 3)
         #
         btnLayout = QtWidgets.QGridLayout()
         btnLayout.setHorizontalSpacing(100)
@@ -169,6 +187,8 @@ class ao_display_settings(QtWidgets.QDialog):
             'voronoi_color': self.btVoronoiColor.color.name(),
             
             'interpolation': self.cbPix.isChecked(),
+            'image_visibility': self.cbImageVisible.isChecked(),
+            'background_color': self.btBkgColor.color.name(),
         }
         if self.contour_settings:
             res.update({
@@ -193,6 +213,8 @@ class ao_display_settings(QtWidgets.QDialog):
                     self.cbContVisible.setChecked(o['contour_visibility'])
                     self.spContWidth.setValue(o['contour_width'])
                     self.btContColor.color = o['contour_color']
+                self.cbImageVisible.setChecked(o['image_visibility'])
+                self.btBkgColor.color = o['background_color']
             except Exception:
                 pass
         else:
@@ -203,6 +225,8 @@ class ao_display_settings(QtWidgets.QDialog):
             self.spVoronoiWidth.setValue(1.5)
             self.btVoronoiColor.color = '#05c4c4'
             self.cbPix.setChecked(True)
+            self.cbImageVisible.setChecked(True)
+            self.btBkgColor.color = '#000000'
             if self.contour_settings:
                 self.cbContVisible.setChecked(True)
                 self.spContWidth.setValue(2)

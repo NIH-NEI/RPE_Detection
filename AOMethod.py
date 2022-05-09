@@ -21,6 +21,7 @@ except AttributeError:
     MODEL_WEIGHTS_BASE = None
 
 from segmentation_models import Linknet
+from segmentation_models.backbones import backbones as smbb
 
 import multiprocessing as mp
 core_num = mp.cpu_count()
@@ -102,18 +103,19 @@ class ao_method():
         if not os.path.isfile(model_weight_path):
             raise ValueError('could not load weight {}'.format(model_weight_path))
 
-        if 'voronoi' in model_name:
-            outclass = 2
-        else:
-            outclass = 1
-
-        str_list = model_name.split('_')
-        application = str_list[0]
-        backbone = str_list[2]
+        parts = model_name.split('_')
+        application = parts[0]
+        backbone = 'densenet121'
+        outclass = 1
+        for pt in parts:
+            if pt == 'voronoi':
+                outclass = 2
+            elif pt in smbb.backbones:
+                backbone = pt
 
         self._rpe_detection_model = self.create_linknet_model(backbone=backbone,
-                                                              training_size=(training_img_rows, training_img_cols),
-                                                              output_class=outclass)
+            training_size=(training_img_rows, training_img_cols),
+            output_class=outclass)
         self._rpe_detection_model.load_weights(model_weight_path)
 
 

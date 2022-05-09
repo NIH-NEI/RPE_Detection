@@ -1,3 +1,13 @@
+#### Version 1.1.2 (2022-05-06) ####
+- Controls for switching source image display on/off in the "Display Settings" box. When the image is off,
+  it is replaced by the customizable "Background" color. This feature works both on the main screen and in "Snapshot".
+- Added preview options 100% and 200% (on top of Fit-To-Frame) in "Snapshot".
+- The "Custom" option added to the "Detection Settings" box. It allows users to specify custom trained ML
+  Model Weights for detection.
+- No preview image scroll/centering on display settings changes in "Snapshot". 
+- Increased upper limit for glyph size to 250 in "Display Settings".
+- Ctrl+F7 copies image widget from the main screen to clipboard.
+
 #### Version 1.1.1 (2022-04-07) ####
 - Added "Settings" tool button (shortcut: F7). It opens a dialog to change display settings -
   visibility, colors and sizes of annotations (markers, Voronoi diagram), and image pixel interpolation for scaling.
