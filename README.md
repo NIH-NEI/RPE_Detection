@@ -74,9 +74,19 @@ If successful, the result is `<prefix>/RPE_Detection/dist/RPE_Detection-{version
 
 1. Make sure Xcode is installed (normally, via Apple App Store).
 
-2. Follow steps 1 through 5 of *Setting up development environment* to setup the development environment.
+2. Install *Node.js*, *npm* and *dmg-license* (require admin/sudo access), if they are not already installed:
 
-3. At the Conda prompt with *RPE_Detection* activated, cd to `<prefix>/RPE_Detection` and type the command:
+	```
+	curl -L https://raw.githubusercontent.com/tj/n/master/bin/n -o n
+	sudo bash n lts
+	sudo npm install --global minimist
+	sudo npm install --global dmg-license
+	rm n
+	```
+
+3. Follow steps 1 through 5 of *Setting up development environment* to setup the development environment.
+
+4. At the Conda prompt with *RPE_Detection* activated, cd to `<prefix>/RPE_Detection` and type the command:
 
 	`bash make_dmg.sh`
 

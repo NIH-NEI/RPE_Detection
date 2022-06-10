@@ -3,7 +3,7 @@
   it is replaced by the customizable "Background" color. This feature works both on the main screen and in "Snapshot".
 - Added preview options 100% and 200% (on top of Fit-To-Frame) in "Snapshot".
 - The "Custom" option added to the "Detection Settings" box. It allows users to specify custom trained ML
-  Model Weights for detection.
+  Model Werights for detection.
 - No preview image scroll/centering on display settings changes in "Snapshot". 
 - Increased upper limit for glyph size to 250 in "Display Settings".
 - Ctrl+F7 copies image widget from the main screen to clipboard.

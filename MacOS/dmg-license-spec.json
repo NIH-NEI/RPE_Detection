@@ -1,0 +1,11 @@
+{
+	"$schema": "https://github.com/argv-minus-one/dmg-license/raw/master/schema.json",
+
+	"body": [
+		{
+			"file": "../Help/License.txt",
+			"type": "plain",
+			"lang": ["en-US", "es-ES"]
+		}
+	]
+}
