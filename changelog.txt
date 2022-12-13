@@ -1,3 +1,6 @@
+#### Version 1.1.2 (2022-12-13) ####
+- Fix bug with not-displaying new annotations due to auto-scaling
+
 #### Version 1.1.2 (2022-05-06) ####
 - Controls for switching source image display on/off in the "Display Settings" box. When the image is off,
   it is replaced by the customizable "Background" color. This feature works both on the main screen and in "Snapshot".

@@ -415,6 +415,7 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
             if op == MouseOp.Add:
                 # Add point
                 if self.can_add(pick_pos):
+                    pick_pos = (pick_pos[0], pick_pos[1], -0.001)
                     self._annotations.append(pick_pos)
                     self._undo_stack.push_undo(pick_pos, UndoStack.ADD, False)
                     dirty_ann = True
@@ -480,7 +481,7 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
                 self.parent.reset_view(False)
             elif op == MouseOp.Move and self.m_idx >= 0:
                 pt = self._annotations[self.m_idx]
-                old_pt = (self.m_xpos, self.m_ypos, -0.0001)
+                old_pt = (self.m_xpos, self.m_ypos, -0.001)
                 if self.pt_dist(pt, old_pt) >= 0.001:
                     self._undo_stack.push_undo(old_pt, UndoStack.DEL, False)
                     self._undo_stack.push_undo(pt, UndoStack.ADD, True)
@@ -831,9 +832,6 @@ class ao_visualization(object):
         self._annotated_points.Initialize()
         if len(pts) is not 0:
             self._annotated_points.SetData(numpy_support.numpy_to_vtk(np.asarray(pts)))
-        # self._annotated_points.SetNumberOfPoints(len(pts))
-        # for id, pt in enumerate(pts):
-        #     self._annotated_points.SetPoint(id, pt[0], pt[1], 0)
         self._annotated_points.Modified()
         self._style._undo_stack.clear()
         self.update_voronoi_segments()
