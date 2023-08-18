@@ -1,5 +1,5 @@
 APPNAME="RPE_Detection"
-VERSION="1.1.2"
+VERSION="1.1.3"
 rm -rf build/
 rm -rf dist/
 pyinstaller --clean --noconfirm build-app-dir.spec

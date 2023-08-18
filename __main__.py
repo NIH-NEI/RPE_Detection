@@ -3,7 +3,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 import AOConfig as cfg
 
 cfg.APP_NAME = 'RPE Detection'
-cfg.APP_VERSION = '1.1.2 (2022-12-13)'
+cfg.APP_VERSION = '1.1.3 (2023-08-18)'
 
 if __name__ == '__main__':
     try:

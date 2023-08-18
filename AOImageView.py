@@ -510,7 +510,7 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
                     if ypos < 0.5: ypos = 0.5
                     if ypos > self.max_ypos: ypos = self.max_ypos
                     
-                    self._annotations[self.m_idx] = (xpos, ypos, -0.0001)
+                    self._annotations[self.m_idx] = (xpos, ypos, -0.001)
                     self._update_annotations(False)
                 elif op == MouseOp.EraseMulti:
                     dirty = False
@@ -576,16 +576,16 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
         if key == 'Alt_L':
             self._alt_down = True
             if not self._win: key = 'Control_L'
-        if not self._mouse_in:
-            obj.OnKeyPress()
-            return
         if key == 'Up':
             cfg.main_wnd.previous_image()
             return
         elif key == 'Down':
             cfg.main_wnd.next_image()
             return
-        elif key == 'Shift_L':
+        if not self._mouse_in:
+            obj.OnKeyPress()
+            return
+        if key == 'Shift_L':
             self._shift_down = True
             if not self._mouse_scroll:
                 QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.OpenHandCursor)

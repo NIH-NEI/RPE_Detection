@@ -17,6 +17,8 @@ class ao_fileIO():
 
     def read_image(self, img_name):
         itk_img = sitk.ReadImage(img_name)
+        itk_img.SetOrigin([0, 0])
+        itk_img.SetSpacing([1, 1])
         #return sitk.GetArrayFromImage(itk_img), itk_img.GetSpacing(), itk_img.GetOrigin()
         return itk_img
 

@@ -1,3 +1,12 @@
+#### Version 1.1.3 (2023-08-18) ####
+- Added "Customize Keyboard Shortcuts" dialog, which allows to re-assign keyboard shortcuts for menu and
+toolbar actions. The dialog opens via menu "Options" -> "Customize Keyboard Shortcuts...".
+- The "Display Settings" dialog converted to a non-modal always-on-top window, which allows to work with
+the main UI without closing the box.
+- FOV ignored when loading images to make VTK image scaling consistent with cases when FOV is not available.
+- Fixed an issue with Up and Down keys not working (not switching between open images).
+- Fixed a potential issue with not displaying some of the newly added annotations.
+
 #### Version 1.1.2 (2022-12-13) ####
 - Fix bug with not-displaying new annotations due to auto-scaling
 
