@@ -43,8 +43,8 @@ thead th {
     </div>
     <div>
 		<b>Jianfei Liu, Yoo-Jean Han, Tao Liu, Nancy Aguilera, and Johnny Tam,</b>
-		“Spatially Aware Dense-LinkNet Based Regression Improves Fluorescent Cell Detection
-		in Adaptive Optics Ophthalmic Images,”
+		&ldquo;Spatially Aware Dense-LinkNet Based Regression Improves Fluorescent Cell Detection
+		in Adaptive Optics Ophthalmic Images&rdquo;,
 		<i>IEEE Journal of Biomedical Health Informatics</i> 24(12):3520-3528, 2020
 	</div>
 
@@ -59,6 +59,11 @@ thead th {
             </tr>
         </thead>
         <tbody>
+            <tr>
+                <td>N/A</td>
+                <td>Export Annotation Stats</td>
+                <td>Export Statistics from the Annotation Tracking system of all open images.</td>
+            </tr>
             <tr>
                 <td>N/A</td>
                 <td>Delete Annotations</td>
@@ -90,11 +95,41 @@ thead th {
                 switch to a different mouse mode, or change display settings.</td>
             </tr>
             <tr>
+                <td><b>F3</b></td>
+                <td>Brightness/Contrast...</td>
+                <td><div>Show/hide Brightness/Contrast widget, which allows to change image brightness/contrast
+                in any mouse mode, not just &ldquo;Adjust&rdquo; mode, using sliders or clicking/dragging the
+                mouse inside the &ldquo;map&rdquo; rectangle. The &ldquo;[]&rdquo; button at the bottom left
+                resets brightness/contrast to the default settings.</div>
+                <div>This widget is also shown automatically when dragging the mouse over the image
+                in &ldquo;Adjust&rdquo; mode. In this case it is automatically hidden when swithing to
+                another mouse mode.</div></td>
+            </tr>
+            <tr>
                 <td><b>F5</b></td>
                 <td><img src="../Icons/settings.png" width=32 height=32 />&nbsp;Settings</td>
                 <td>Open a dialog to change display settings &mdash; visibility, colors and sizes of annotations
                 (markers, Voronoi diagram), as well as source image visibility and
                 pixel interpolation for scaling. Any changes take effect immediately.</td>
+            </tr>
+            <tr>
+                <td><b>F6</b></td>
+                <td>Annotation Sources...</td>
+                <td>Open a dialog listing annotation sources (or origins). Starting with ver. 1.2 each annotation
+                is assigned a metadata object describing the source or origin of the annotation. For example,
+                annotations generated automatically will have name of the algorithm/method, creation date and
+                method parameter values, e.g. &ldquo;(287,16) ConeDetection_UNet_epchs25000 - 2025-05-29 FOV=0.75
+                probablity_threshold=0.5 clustering_radius=10&rdquo;.
+                Annotations created or edited manually will have the name of the system user and the current date.
+                When you mouse over an annotation, its coordinates and source are displayed
+                in the status line at the bottom right corner of the main application window.</div>
+                <div>The dialog allows you to change display for select annotation sources: annotations, associated
+                with unchecked sources, will be displayed in dark dull color. The list of sources in the dialog is sorted
+                by the date in reverse order, most recent source(s) on top.</div>
+                <div>In addition, you may specify an optional comment, which will be assigned to all your
+                edits on the current image. If you check the &ldquo;Set as default&rdquo; box, the same comment
+                will be also applied to all open images (during the current session), that have no comment
+                on your edits yet.</div></td>
             </tr>
             <tr>
                 <td><b>F7</b></td>
@@ -125,7 +160,15 @@ thead th {
             <tr>
                 <td><b>Ctrl+O</b></td>
                 <td><img src="../Icons/open.png" width=32 height=32 />&nbsp;Open...</td>
-                <td>Open one or more AO Images (.tif) and associated Annotations (.csv).</td>
+                <td>
+                		<div>Open one or more AO Images (.tif) and associated Annotations (.csv).</div>
+                		<div>Open image names are displayed on the right side of the main window. The icons
+                		are green if the images have accompanying *.csv annotation files saved in the same directories as the images.</div>
+                		<div>Images that have a 	<img src="../Icons/squareplusgray.png" width=16 height=16 /> icon are 3D image stacks. 
+                		Wnen you double-click or press <b>Enter</b> on one of these names, a list of frames from this stack is displayed
+                		in place of the image list. You can check/uncheck some frames to exclude them from the automatic processing.
+                		To go back to the list of images, double-click or press <b>Enter</b> on the image name in the header.</div>
+                </td>
             </tr>
             <tr>
                 <td><b>Ctrl+P</b></td>

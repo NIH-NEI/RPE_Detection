@@ -50,13 +50,11 @@ class AoColorButton(QtWidgets.QPushButton):
                 self.onchange(self.color)
         #
 
-class ao_display_settings(QtWidgets.QDialog):
+class ao_display_settings(QtWidgets.QWidget):
     changed = QtCore.pyqtSignal([dict])
-    def __init__(self, parent=None, contour_settings=True):
+    def __init__(self, parent=None, contour_settings=True, onclose=None):
         super(ao_display_settings, self).__init__(parent)
         self.contour_settings = contour_settings
-        self.setWindowFlags(self.windowFlags() & ~QtCore.Qt.WindowContextHelpButtonHint)
-        
         
         flags = self.windowFlags() | QtCore.Qt.WindowStaysOnTopHint
         flags &= ~QtCore.Qt.WindowContextHelpButtonHint
@@ -167,12 +165,11 @@ class ao_display_settings(QtWidgets.QDialog):
         self.btnOk = QtWidgets.QPushButton('  OK  ')
         btnLayout.addWidget(self.btnOk, 0, 1)
         #
-        self.btnOk.clicked.connect(self.close)
+        self.btnOk.clicked.connect(self.close if onclose is None else onclose)
         self.btnDef.clicked.connect(self.loadDefaults)
         #
         self.displaySettings = None
         self._mute = False
-        #self.setFixedSize(self.size())
     #
     def showEvent(self, evt):
         super(ao_display_settings, self).showEvent(evt)
@@ -248,3 +245,22 @@ class ao_display_settings(QtWidgets.QDialog):
                 self.btContColor.color = '#00ff00'
         self._mute = False
     #
+
+class ao_display_settings_dlg(QtWidgets.QDialog):
+    def __init__(self, parent=None, contour_settings=True):
+        super(ao_display_settings_dlg, self).__init__(parent)
+        #
+        view_layout = QtWidgets.QGridLayout()
+        self.setLayout(view_layout)
+        self.settings_widget = ao_display_settings(parent, contour_settings, self.close)
+        view_layout.addWidget(self.settings_widget, 0, 0)
+        self.changed = self.settings_widget.changed
+    #
+    @property
+    def displaySettings(self):
+        return self.settings_widget.displaySettings
+    @displaySettings.setter
+    def displaySettings(self, o):
+        self.settings_widget.displaySettings = o
+#
+

@@ -1,15 +1,20 @@
 __all__ = ('BASE_DIR', 'ICONS_DIR', 'HELP_DIR', 'qt_icon', 'display_error', 'display_warning', 'askYesNo',
-        'ao_progress_dialog', 'ao_loc_dialog', 'ao_parameter_dialog',)
+        'ao_progress_dialog', 'ao_loc_dialog', 'ao_parameter_dialog', 'ao_brightness_contrast',
+        'ao_source_window',)
 
 import os
 import sys
 import time
 import datetime
+import math
 import traceback
-import AOImageView
+#import AOImageView
 
+import numpy as np
 from PyQt5 import QtCore, QtWidgets, QtGui
 from segmentation_models.backbones import backbones as smbb
+
+from AOMetaList import *
 
 if hasattr(sys, '_MEIPASS'):
     BASE_DIR = sys._MEIPASS
@@ -449,3 +454,461 @@ class ao_parameter_dialog(QtWidgets.QDialog):
             self.custom = False
         self._mute = False
     #
+
+class _crossLabel(QtWidgets.QLabel):
+    def __init__(self, callback=None):
+        super(_crossLabel, self).__init__()
+        self.callback = callback
+        #
+        self.margin = 10
+        #
+        self.setStyleSheet(f'margin: {self.margin} {self.margin} {self.margin} {self.margin};')
+        self.setMouseTracking(True)
+        #
+        self.rangeX = (0, 1000)
+        self.rangeY = (0, 1000)
+        self.posX = 0
+        self.posY = 0
+        #
+        img_data = np.empty(shape=(256, 256), dtype=np.float32)
+        for c in range(256):
+            img_data[0][c] = c
+        row0 = img_data[0]
+        for j in range(1,256):
+            img_data[j] = row0 * ((255. - j * 0.85) / 255.) + (127.5 * j * 0.85 / 255.)
+        img_data = np.transpose(img_data, (1,0)).copy()
+        img = QtGui.QImage(img_data.astype(np.uint8), 256, 256, 256, QtGui.QImage.Format_Grayscale8)
+        self.pixmap0 = QtGui.QPixmap.fromImage(img)
+        self._updateScaledPixmap()
+        #
+    def _updateScaledPixmap(self):
+        self.scpixmap = self.pixmap0.scaled(self.width()-self.margin*2, self.height()-self.margin*2, transformMode=QtCore.Qt.FastTransformation)
+        self.setPixmap(self.scpixmap)
+        #self.update()
+    def resizeEvent(self, e):
+        self._updateScaledPixmap()
+    #
+    def _handle_mouse_pos(self, e):
+        pt = e.pos()
+        x0 = self.margin
+        x1 = self.width() - self.margin
+        w = x1 - x0
+        y0 = self.margin
+        y1 = self.height() - self.margin
+        h = y1 - y0
+        x = (pt.x() - x0) * (self.rangeX[1] - self.rangeX[0]) / w + self.rangeX[0]
+        y = (h - pt.y() + y0) * (self.rangeY[1] - self.rangeY[0]) / h + self.rangeY[0]
+        if x>=self.rangeX[0] and x<=self.rangeX[1] and y>=self.rangeY[0] and y<=self.rangeY[1]:
+            if self.callback:
+                self.callback(int(x+0.5), int(y+0.5))
+    #
+    def mousePressEvent(self, e):
+        if e.button() == QtCore.Qt.LeftButton:
+            self._handle_mouse_pos(e)
+    def mouseMoveEvent(self, e):
+        if e.buttons() == QtCore.Qt.LeftButton:
+            self._handle_mouse_pos(e)
+    #
+    def paintEvent(self, e):
+        super(_crossLabel, self).paintEvent(e)
+        qp = QtGui.QPainter()
+        qp.begin(self)
+        pen = QtGui.QPen(QtCore.Qt.yellow, 2, QtCore.Qt.CustomDashLine)
+        pen.setDashPattern([2, 4])
+        qp.setPen(pen)
+        #
+        x0 = self.margin
+        x1 = self.width() - self.margin
+        w = x1 - x0
+        y0 = self.margin
+        y1 = self.height() - self.margin
+        h = y1 - y0
+        x = (self.posX - self.rangeX[0]) * w / (self.rangeX[1] - self.rangeX[0]) + x0
+        qp.drawLine(x, y0, x, y1)
+        y = h - (self.posY - self.rangeY[0]) * h / (self.rangeY[1] - self.rangeY[0]) + y0
+        qp.drawLine(x0, y, x1, y)
+        #
+        qp.end()
+    #
+
+class ao_brightness_contrast(QtWidgets.QWidget):
+    def __init__(self, mainwin, parent=None, callback=None):
+        super(ao_brightness_contrast, self).__init__(parent)
+        self.mainwin = mainwin
+        self.callback = callback
+        #
+        self.manual = True
+        #
+        flags = self.windowFlags() | QtCore.Qt.FramelessWindowHint | QtCore.Qt.WindowStaysOnTopHint
+        self.setWindowFlags(flags)
+        self.setAutoFillBackground(True)
+        self.setBackgroundRole(QtGui.QPalette.Shadow)
+        #
+        geom = QtWidgets.QApplication.primaryScreen().geometry()
+        wsz = geom.height() * 20 // 100
+        self.resize(wsz, wsz)
+        self.move(30, 30)
+        #
+        view_layout = QtWidgets.QGridLayout()
+        view_layout.setHorizontalSpacing(2)
+        view_layout.setVerticalSpacing(2)
+        self.setLayout(view_layout)
+        #
+        for idx, stretch in enumerate((0., 1., 0.)):
+            view_layout.setColumnStretch(idx, stretch)
+            view_layout.setRowStretch(idx, stretch)
+        #
+        b_lab = QtWidgets.QLabel('\u263C')
+        b_lab.setFont(QtGui.QFont('Arial', 10))
+        view_layout.addWidget(b_lab, 0, 0)
+        c_lab = QtWidgets.QLabel(' \u25D1')
+        c_lab.setFont(QtGui.QFont('Arial', 16))
+        view_layout.addWidget(c_lab, 2, 2)
+        #
+        self.c_sl = sl = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+        sl.setRange(0,1000)
+        sl.setTickInterval(100)
+        sl.setTickPosition(QtWidgets.QSlider.TicksAbove)
+        view_layout.addWidget(sl, 2, 1)
+        self.b_sl = sl = QtWidgets.QSlider(QtCore.Qt.Vertical)
+        sl.setRange(0,1000)
+        sl.setTickInterval(100)
+        sl.setTickPosition(QtWidgets.QSlider.TicksRight)
+        view_layout.addWidget(sl, 1, 0)
+        self.crosslabel = _crossLabel(callback=self.onCrossLabel)
+        view_layout.addWidget(self.crosslabel, 1, 1)
+        self.rbtn = QtWidgets.QPushButton('\u2A01')
+        self.rbtn.setStyleSheet('margin: 0; padding: 1 4 1 4;')
+        self.rbtn.setBackgroundRole(QtGui.QPalette.Dark)
+        view_layout.addWidget(self.rbtn, 2, 0)
+        #
+        self.c_sl.valueChanged.connect(self.onColorWindowSlider)
+        self.b_sl.valueChanged.connect(self.onColorLevelSlider)
+        self.rbtn.clicked.connect(lambda: self.onCrossLabel(500,500))
+        #
+        self.setMaximumSize(self.size())
+        #
+        self._mute = False
+    #
+    def onColorWindowSlider(self, v):
+        self.crosslabel.posX = v
+        self.crosslabel.update()
+        if not self._mute and self.callback:
+            self.callback(self.color_info)
+    def onColorLevelSlider(self, v):
+        self.crosslabel.posY = v
+        self.crosslabel.update()
+        if not self._mute and self.callback:
+            self.callback(self.color_info)
+    #
+    def onCrossLabel(self, x, y):
+        mute = self._mute
+        self._mute = True
+        self.b_sl.setValue(y)
+        self.c_sl.setValue(x)
+        self._mute = mute
+        if not self._mute and self.callback:
+            self.callback(self.color_info)
+    #
+    @property
+    def color_info(self):
+        y = self.b_sl.value()
+        clvl = y * 767. / 1000. - 256. if y != 500 else 127.5
+        x = self.c_sl.value()
+        cwin = math.pow(x/125.1347,4.) + 0.1 if x != 500 else 255.
+        return (clvl, cwin)
+    @color_info.setter
+    def color_info(self, v):
+        try:
+            clvl, cwin = v
+            y = (clvl + 256.) * 1000. / 767.
+            if y<0: y=0
+            elif y>1000: y=1000
+            if cwin <= 0.1: x=0
+            else:
+                x = math.pow((cwin-0.1), 0.25)*125.1347
+                if x>1000: x=1000
+            x = int(x)
+            y = int(y)
+        except Exception as ex:
+            print(ex)
+            x = y = 500
+        self._mute = True
+        self.onCrossLabel(x, y)
+        self._mute = False
+    #
+
+
+
+class ao_source_window(QtWidgets.QWidget):
+    def __init__(self, mainwin):
+        super(ao_source_window, self).__init__(None)
+        self.mainwin = mainwin
+        self._mute = True
+        #
+        self.cmeta = MetaRecord(when=MetaRecord.TODAY, user=MetaRecord.CURRENT_USER)
+        if self.mainwin:
+            self.cmeta.realWho = self.mainwin.getRealName(self.cmeta.user)
+        #
+        flags = self.windowFlags() & ~QtCore.Qt.WindowContextHelpButtonHint
+        #flags |= QtCore.Qt.WindowStaysOnTopHint
+        self.setWindowFlags(flags)
+        #
+        geom = QtWidgets.QApplication.primaryScreen().geometry()
+        self.gw = geom.width()
+        self.gh = geom.height()
+        self.resize(self.gw * 60 // 100, self.gh * 32 // 100)
+        #
+        self._contours = MetaList()
+        self._setup_layout()
+        self.sourceTable.setFocus()
+        self._mute = False
+        #
+    #
+    def _setup_layout(self):
+        self.setWindowTitle('Annotation Sources')
+        view_layout = QtWidgets.QGridLayout()
+        view_layout.setHorizontalSpacing(8)
+        view_layout.setVerticalSpacing(8)
+        self.setLayout(view_layout)
+        #
+        name_layout = QtWidgets.QGridLayout()
+        name_layout.setColumnStretch(0, 0)
+        name_layout.setColumnStretch(1, 1)
+        view_layout.addLayout(name_layout, 0, 0)
+        nameLabel = QtWidgets.QLabel('Real User Name:')
+        name_layout.addWidget(nameLabel, 0, 0)
+        self.realNameTxt = QtWidgets.QLineEdit()
+        name_layout.addWidget(self.realNameTxt, 0, 1)
+        #
+        self.sourceTable = QtWidgets.QTableWidget(0, 6)
+        self.sourceTable.setColumnWidth(0, 8)
+        self.sourceTable.setColumnWidth(1, 2)
+        self.sourceTable.setColumnWidth(2, self.gw * 4 // 100)
+        self.sourceTable.setColumnWidth(3, self.gw * 5 // 100)
+        self.sourceTable.setColumnWidth(4, self.gw * 8 // 100)
+        self.sourceTable.setHorizontalHeaderLabels([u'\u221A', u'', u'Count', u'Date', u'User', u'Comment']);
+        self.sourceTable.horizontalHeader().setStretchLastSection(True)
+        self.sourceTable.verticalHeader().setVisible(False)
+        #self.sourceTable.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers);
+        self.sourceTable.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows);
+        self.sourceTable.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection);
+        self.sourceTable.setShowGrid(False);
+        self.sourceTable.horizontalHeader().sectionClicked.connect(self.OnHeaderClicked)
+        view_layout.addWidget(self.sourceTable, 1, 0)
+        #
+        btn_layout = QtWidgets.QGridLayout()
+        btn_layout.setColumnStretch(0, 0)
+        btn_layout.setColumnStretch(1, 0)
+        btn_layout.setColumnStretch(2, 1)
+        btn_layout.setColumnStretch(3, 0)
+        btn_layout.setHorizontalSpacing(16)
+        view_layout.addLayout(btn_layout, 2, 0)
+        self.newButton = QtWidgets.QPushButton('New')
+        btn_layout.addWidget(self.newButton, 0, 0)
+        self.delButton = QtWidgets.QPushButton('Delete')
+        btn_layout.addWidget(self.delButton, 0, 1)
+        self.dfltButton = QtWidgets.QPushButton('Default')
+        btn_layout.addWidget(self.dfltButton, 0, 3)
+        #
+        self.realNameTxt.setText(self.cmeta.realWho)
+        self.realNameTxt.editingFinished.connect(self.onRealNameChanged)
+        self.sourceTable.cellChanged.connect(self.onDescriptionChanged)
+        self.sourceTable.currentCellChanged.connect(self.onCurrentCellChange)
+        self.newButton.clicked.connect(self.onNewButton)
+        self.delButton.clicked.connect(self.onDelButton)
+        self.dfltButton.clicked.connect(self.onDefaultButton)
+    #
+    def onRealNameChanged(self):
+        self.cmeta.realWho = self.realNameTxt.text()
+        MetaRecord.REAL_USER = self.cmeta.realUser if 'realUser' in self.cmeta.__dict__ else None
+        for meta, lst in self._contours.itermapping():
+            if meta.userkey == MetaRecord.current_key():
+                meta.realWho = self.cmeta.realWho
+        self.setMetaList(self._contours)
+        if self.mainwin:
+            self.mainwin.setRealName(self.cmeta.realWho)
+    #
+    def onDescriptionChanged(self, row, col):
+        if self._mute: return
+        if col != 5: return
+        try:
+            comment = self.sourceTable.item(row, col).text().strip()
+            mrec = self._meta_list[row][0]
+            if comment:
+                mrec.__dict__['comment'] = comment
+            else:
+                if 'comment' in mrec.__dict__:
+                    del mrec.comment
+            self._update_defaults()
+        except Exception:
+            pass
+    #
+    def OnHeaderClicked(self, col):
+        if col != 0: return
+        self._mute = True
+        ck = False
+        for row in range(self.sourceTable.rowCount()):
+            if not self.sourceTable.cellWidget(row, 0).isChecked():
+                ck = True
+                break
+        for row in range(self.sourceTable.rowCount()):
+            self.sourceTable.cellWidget(row, 0).setChecked(ck)
+        self._mute = False
+        self._update_selection(False)
+    #
+    def _update_selection(self, st):
+        if self._mute or not hasattr(self._contours, 'setGrayMeta'):
+            return
+        grayed = []
+        for cb, (meta, cnt) in zip(self._cb_list, self._meta_list):
+            if not cb.isChecked():
+                grayed.append(meta)
+        self._contours.setGrayMeta(grayed)
+        if self.mainwin:
+            self._mute = True
+            self.mainwin._update_sources()
+            self._mute = False
+    #
+    def _update_button_status(self):
+        curmeta = self._current_meta()
+        self.delButton.setEnabled(self._contours.meta.can_delete_meta(curmeta))
+        self.dfltButton.setEnabled(self._can_be_default(curmeta))
+    #
+    def onCurrentCellChange(self, row, col, prow, pcol):
+        if self._mute: return
+        self._mute = True
+        if col != 5:
+            self.sourceTable.setCurrentCell(row, 5)
+        meta = self._current_meta()
+        if self._can_be_default(meta):
+            self._contours.meta.default = meta
+            if self.mainwin:
+                self.mainwin._set_annotations(None)
+        self._mute = False
+        self._update_button_status()
+    #
+    def setMetaList(self, contours, cur_row=-1):
+        if self._mute: return
+        self._mute = True
+        cur_col = -1
+        if contours is self._contours:
+            if cur_row < 0:
+                cur_row = self.sourceTable.currentRow()
+            cur_col = 5
+        self._contours = contours
+        self._meta_list = []
+        self._cb_list = []
+        for attr in ('meta', 'itermapping', 'isGrayMetaRec'):
+            if not hasattr(self._contours, attr):
+                self.sourceTable.setRowCount(0)
+                return
+        #
+        for meta, lst in self._contours.itermapping():
+            self._meta_list.append((meta, len(lst)))
+        self.sourceTable.setRowCount(len(self._meta_list))
+        #
+        for row, (meta, cnt) in enumerate(self._meta_list):
+            cb = QtWidgets.QCheckBox()
+            cb.setChecked(not contours.isGrayMetaRec(meta))
+            cb.setContentsMargins(8, 2, 2, 0)
+            self.sourceTable.setCellWidget(row, 0, cb)
+            cb.toggled.connect(self._update_selection)
+            self._cb_list.append(cb)
+            item = QtWidgets.QTableWidgetItem('')
+            item.setFlags(item.flags() & ~QtCore.Qt.ItemIsEditable);
+            self.sourceTable.setItem(row, 1, item)
+            item = QtWidgets.QTableWidgetItem(f'{cnt}   ')
+            item.setTextAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter);
+            item.setFlags(item.flags() & ~QtCore.Qt.ItemIsEditable);
+            self.sourceTable.setItem(row, 2, item)
+            item = QtWidgets.QTableWidgetItem(meta.when)
+            item.setFlags(item.flags() & ~QtCore.Qt.ItemIsEditable);
+            self.sourceTable.setItem(row, 3, item)
+            item = QtWidgets.QTableWidgetItem(meta.realWho)
+            item.setFlags(item.flags() & ~QtCore.Qt.ItemIsEditable);
+            self.sourceTable.setItem(row, 4, item)
+            item = QtWidgets.QTableWidgetItem(meta.description)
+            if meta.userkey != MetaRecord.current_key():
+                item.setFlags(item.flags() & ~QtCore.Qt.ItemIsEditable);
+            else:
+                hi = 0xF0 if row&1 == 0 else 0xF8
+                item.setBackground(QtGui.QBrush(QtGui.QColor(hi, hi, 0xFF)))
+                item.setForeground(QtGui.QBrush(QtGui.QColor(0, 0, 0x55)))
+            self.sourceTable.setItem(row, 5, item)
+        #
+        self.sourceTable.clearSelection()
+        self.sourceTable.setCurrentCell(cur_row, cur_col)
+        self._update_defaults()
+        self._mute = False
+    #
+    def onNewButton(self):
+        self.sourceTable.setFocus()
+        self._mute = True
+        meta = MetaRecord(user=MetaRecord.CURRENT_USER)
+        self._contours.meta.addmeta(meta, newid=True, setdefault=True)
+        if self.mainwin:
+            self.mainwin._set_annotations(None)
+        self._mute = False
+        self.setMetaList(self._contours, cur_row=0)
+    #
+    def onDelButton(self):
+        self.sourceTable.setFocus()
+        meta = self._current_meta()
+        if not self._contours.meta.can_delete_meta(meta):
+            return
+        self._mute = True
+        self._contours.meta.delmeta(meta)
+        if self.mainwin:
+            self.mainwin._set_annotations(None)
+        self._mute = False
+        self.setMetaList(self._contours, cur_row=0)
+    #
+    def _can_be_default(self, meta):
+        if meta is None: return False
+        return meta.userkey == MetaRecord.current_key()
+    #
+    def _update_defaults(self):
+        has_default = False
+        self._mute = True
+        for row, (meta, cnt) in enumerate(self._meta_list):
+            st = ''
+            if MetaRecord.COMMENT and self._can_be_default(meta) and not 'comment' in meta.__dict__:
+                self.sourceTable.item(row, 5).setText(MetaRecord.COMMENT)
+                if not has_default:
+                    st = '*'
+                    has_default = True
+            self.sourceTable.item(row, 1).setText(st)
+        self._mute = False
+        self._update_button_status()
+    #
+    def _current_meta(self):
+        try:
+            return self._meta_list[self.sourceTable.currentRow()][0]
+        except Exception:
+            return None
+    #
+    def onDefaultButton(self):
+        self.sourceTable.setFocus()
+        meta = self._current_meta()
+        if not self._can_be_default(meta):
+            return
+        #
+        if MetaRecord.COMMENT:
+            for _meta, cnt in self._meta_list:
+                if _meta.userkey == meta.userkey and not 'comment' in _meta.__dict__:
+                    _meta.__dict__['comment'] = MetaRecord.COMMENT
+        #
+        row = self.sourceTable.currentRow()
+        if self.sourceTable.item(row, 1).text() == '*':
+            MetaRecord.COMMENT = None
+        else:
+            txt = self.sourceTable.item(row, 5).text().strip()
+            if not txt:
+                txt = None
+            MetaRecord.COMMENT = txt
+            if 'comment' in meta.__dict__:
+                del meta.__dict__['comment']
+        self._update_defaults()
+    #
+

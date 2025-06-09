@@ -2,6 +2,7 @@ from __future__ import division
 import os, sys
 import json
 from collections import defaultdict
+from enum import Enum
 import vtk
 
 from PyQt5 import QtCore, QtGui, QtWidgets
@@ -12,6 +13,7 @@ import SimpleITK as sitk
 
 import numpy as np
 from keras.preprocessing.image import load_img
+from AOMetaList import *
 import AOImageView
 from AOImageView import MouseOp
 import AOFileIO
@@ -21,6 +23,11 @@ from AODisplay import ao_display_settings
 from AOSnap import ao_snap_dialog
 from AOHotKey import ao_hotkey_dialog
 import AOConfig as cfg
+
+IMG_ICON_2D = 0
+IMG_ICON_ANN = 1
+IMG_ICON_3D = 2
+IMG_ICON_OPEN = 4
 
 _big_icon = QtCore.QUrl.fromLocalFile(os.path.join(ICONS_DIR, 'RPE_Detection256x256.png'))
 about_html = '''
@@ -39,6 +46,8 @@ cite the following paper in your publication:<br>
 Cell Detection in Adaptive Optics Ophthalmic Images,"<br>
 <i>IEEE Journal of Biomedical Health Informatics</i> 24(12):3520-3528, 2020</td></tr></table>
 ''' % (_big_icon.url(), cfg.APP_NAME, cfg.APP_VERSION)
+
+
 #
 class AboutDialog(QtWidgets.QDialog):
     def __init__(self, parent=None):
@@ -61,6 +70,145 @@ class AboutDialog(QtWidgets.QDialog):
         self.setLayout(layout)
 #
 
+class InputImageData(object):
+    def __init__(self, img_fpath, itk_img):
+        self.itk_img = itk_img
+        self.filepath = img_fpath
+        self._name = os.path.splitext(os.path.basename(self.filepath))[0]
+        self.color = (127.5, 255.)
+        #
+        self.imgsz = self.itk_img.GetSize()
+        self.ndim = len(self.imgsz)
+        self.nframes = 1 if self.ndim == 2 else self.imgsz[2]
+        self._cframe = 0
+        self.all_annotations = [None for _ in range(self.nframes)]
+        self._unchecked = set()
+        #
+        self.local_apath = None
+        self.hist_apath = None
+    #
+    @property
+    def name(self):
+        return self._name
+    @property
+    def listname(self):
+        return self._name if self.ndim==2 else f'[{self.nframes}] {self._name}'
+    @property
+    def statusname(self):
+        parts = []
+        if self.ndim == 3:
+            parts.append(f'Frame {self.cframe+1} of {self.nframes}')
+        sz = self.GetSize()
+        parts.append(f'[{sz[0]}x{sz[1]}]')
+        parts.append(self._name)
+        if self.is_annotated:
+            parts.append('(Annotated)')
+        return ' '.join(parts)
+    @property
+    def titlename(self):
+        if self.nframes > 1:
+            return f'[{self.cframe}] {self._name}'
+        return self._name
+    # @property
+    # def listName(self):
+    #     bn = self._name if self.ndim==2 else f'[{self.nframes}] {self._name}'
+    #     if self.is_annotated:
+    #         return u'\u221A'+bn
+    #     return u' '+bn
+    #
+    @property
+    def cframe(self):
+        return self._cframe
+    @cframe.setter
+    def cframe(self, v):
+        try:
+            if v < 0: v = 0
+            elif v >= self.nframes: v = self.nframes - 1
+        except Exception:
+            v = 0
+        self._cframe = v
+    #
+    @property
+    def annotations(self):
+        ann = self.all_annotations[self.cframe]
+        if ann is None:
+            ann = self.all_annotations[self.cframe] = MetaList()
+        return ann
+    @annotations.setter
+    def annotations(self, v):
+        self.all_annotations[self.cframe] = v
+    #
+    @property
+    def is_annotated(self):
+        return os.path.isfile(self.local_apath)
+    #
+    def GetNdArray(self):
+        n_array = sitk.GetArrayFromImage(self.itk_img)
+        return n_array[self.cframe] if self.ndim == 3 else n_array
+    def GetOrigin(self):
+        orig = self.itk_img.GetOrigin()
+        return orig[:2] if self.ndim == 3 else orig
+    def GetSize(self):
+        return self.imgsz[:2] if self.ndim == 3 else self.imgsz
+    def GetSpacing(self):
+        spacing = self.itk_img.GetSpacing()
+        return spacing[:2] if self.ndim == 3 else spacing
+    #
+    def isChecked(self, fr):
+        return not fr in self._unchecked
+    def setChecked(self, fr, st):
+        if fr < 0 or fr >= self.nframes:
+            return
+        if not st:
+            self._unchecked.add(fr)
+        else:
+            self._unchecked.discard(fr)
+    def anyChecked(self):
+        return len(self._unchecked) < self.nframes
+    #
+    def countChecked(self):
+        return self.nframes - len(self._unchecked)
+    #
+    def importAnnotations(self, aa):
+        for fr, _ in enumerate(self.all_annotations):
+            ann = aa.get(fr)
+            if isinstance(ann, tuple):
+                ann = list(ann)
+            self.all_annotations[fr] = ann
+        if 'unchecked' in aa:
+            self._unchecked.clear()
+            for fr in aa['unchecked']:
+                self._unchecked.add(fr)
+    #
+    def exportAnnotations(self):
+        res = {}
+        for fr, ann in enumerate(self.all_annotations):
+            if not ann is None:
+                res[fr] = ann
+        if len(self._unchecked) > 0:
+            res['unchecked'] = sorted(self._unchecked)
+        return res
+    #
+    def acount(self):
+        res = 0
+        for ann in self.all_annotations:
+            if ann:
+                res += len(ann)
+        return res
+    #
+    def aclear(self):
+        self.all_annotations = [None for _ in range(self.nframes)]
+    #
+
+class EnterListWidget(QtWidgets.QListWidget):
+    def keyPressEvent(self, event: QtGui.QKeyEvent):
+        if event.key() == QtCore.Qt.Key_Enter or event.key() == QtCore.Qt.Key_Return:
+            if self.currentItem():
+                self.itemDoubleClicked.emit(self.currentItem())
+        else:
+            super().keyPressEvent(event)
+#
+
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self, parent=None):
         super(MainWindow, self).__init__(parent)
@@ -70,16 +218,23 @@ class MainWindow(QtWidgets.QMainWindow):
         cfg.main_wnd = self
 
         self._mute = True
-        self._input_data = {
-            'RPE image file paths': [],
-            'RPE image names': [],
-            'RPE images': [],
-            'RPE annotations': [],
-            'colors': [],
-        }
+        self._input_data = []
         self._cur_img_id = -1
+        self._cur_3d = None
+        self._status_id = -1
+        
+        self._icon_map = dict([
+            (IMG_ICON_2D, qt_icon('circlegray')),
+            (IMG_ICON_2D | IMG_ICON_ANN, qt_icon('circlegreen')),
+            (IMG_ICON_3D, qt_icon('squareplusgray')),
+            (IMG_ICON_3D | IMG_ICON_ANN, qt_icon('squareplusgreen')),
+            (IMG_ICON_OPEN, qt_icon('squareminus')),
+            (IMG_ICON_OPEN | IMG_ICON_ANN, qt_icon('squareminus'))
+        ])
+        
         self.loadDir = QtCore.QDir.home()
         self.saveDir = QtCore.QDir.home()
+        self.realNameMap = {}
 
         # State dir/file
         self.state_dir = os.path.join(os.path.expanduser('~'), '.RPE_Detection')
@@ -88,7 +243,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.state_file = os.path.join(self.state_dir, 'state.json')
         self.shortcuts_file = os.path.join(self.state_dir, 'shortcuts.json')
 
-        #create backup directory
+        # create backup directory
         self.hist = cfg.HistoryManager(self.state_dir, suffix='.csv', retention_days=365)
             
         self._mouse_status = MouseOp.Normal
@@ -107,6 +262,11 @@ class MainWindow(QtWidgets.QMainWindow):
         self._status_bar = QtWidgets.QStatusBar()
         self._status_bar.setStyleSheet("QStatusBar{border-top: 1px outset grey;}")
         self.setStatusBar(self._status_bar)
+
+        self.mposText = QtWidgets.QLabel()
+        #self.mposText.setReadOnly(True)
+        self.mposText.setMaximumWidth(geom.width()*50//100)
+        self._status_bar.addPermanentWidget(self.mposText, 0)
 
         self._detection_para_dlg = ao_parameter_dialog(self)
         self._detection_para_dlg.setMinimumSize(geom.width()/5, geom.height()/3)
@@ -177,9 +337,16 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.loadDir = QtCore.QDir(jobj['loadDir'])
             if 'saveDir' in jobj:
                 self.saveDir = QtCore.QDir(jobj['saveDir'])
-        except Exception as ex:
-            print(ex)
+            if 'realNameMap' in jobj:
+                for usern, realn in jobj['realNameMap'].items():
+                    self.realNameMap[usern] = realn
+        except Exception:
             pass
+        usern = self.getUserName()
+        if usern in self.realNameMap:
+            realn = self.realNameMap[usern]
+            if realn and realn != usern:
+                MetaRecord.REAL_USER = self.getRealName()
         self.save_ok = True
     def saveState(self):
         if not hasattr(self, 'save_ok'): return
@@ -195,6 +362,7 @@ class MainWindow(QtWidgets.QMainWindow):
             jobj = {
                 'detection_para': self._detection_para_dlg.state,
                 'displaySettings': self._image_view.displaySettings,
+                'realNameMap': self.realNameMap,
             }
             if not ldir is None:
                 jobj['loadDir'] = ldir
@@ -220,6 +388,23 @@ class MainWindow(QtWidgets.QMainWindow):
         except Exception:
             pass
     #
+    def getUserName(self):
+        return os.getenv('USERNAME', '=Anonymous=')
+    def getRealName(self, usern=None):
+        if usern is None:
+            usern = self.getUserName()
+        if usern in self.realNameMap:
+            return self.realNameMap[usern]
+        return usern
+    def setRealName(self, realn):
+        usern = os.getenv('USERNAME', '=Anonymous=')
+        if realn and realn != usern:
+            self.realNameMap[usern] = realn
+        else:
+            if usern in self.realNameMap:
+                del self.realNameMap[usern]
+        self.saveState()
+    #
     def closeEvent(self, e):
         for winname in ('helpWindow', 'srcwin', '_display_settings_dlg'):
             if hasattr(self, winname):
@@ -239,22 +424,21 @@ class MainWindow(QtWidgets.QMainWindow):
             strict = True
         if len(csv_filenames) > 0:
             self._open_annotation_list(csv_filenames, strict)
-
+    #
     def _initialize_input_data(self):
+        self._input_data = []
         self._cur_img_id = -1
-        self._input_data['RPE image file paths'].clear()
-        self._input_data['RPE image names'].clear()
-        self._input_data['RPE images'].clear()
-        self._input_data['RPE annotations'].clear()
-        self._input_data['colors'].clear()
-
+        self._cur_3d = None
+    #
     def _setup_layout(self):
         frame = Qt.QFrame()
-        self._file_list = QtWidgets.QListWidget(self)
+        self._file_list = EnterListWidget(self) #QtWidgets.QListWidget(self)
         self._file_list.currentRowChanged.connect(self._file_list_row_changed)
+        self._file_list.itemDoubleClicked.connect(self._file_list_item_doublecklicked)
+        self._file_list.itemChanged.connect(self._file_list_item_changed)
 
         self.vtkFrame = vtkWidget = QVTKRenderWindowInteractor(frame)
-        self._image_view = AOImageView.ao_visualization(vtkWidget, auto_tolerance=True)
+        self._image_view = AOImageView.ao_visualization(vtkWidget, parent=self, auto_tolerance=True)
         
         flist_layout = Qt.QVBoxLayout()
         flist_layout.addWidget(self._file_list, 4)
@@ -273,20 +457,29 @@ class MainWindow(QtWidgets.QMainWindow):
         self.open_image_act = QtWidgets.QAction('Open...', self, shortcut=QtGui.QKeySequence.Open,
                     icon=qt_icon('open'),
                     statusTip='Open RPE images/annotations',
+                    toolTip='Open RPE images/annotations',
                     triggered=self._open_images)
 
         self.open_annotation_act = QtWidgets.QAction('Points...', self, shortcut='Ctrl+P',
                     icon=qt_icon('open_document1'),
-                    statusTip='Open RPE annotations', triggered=self._open_annotations)
+                    statusTip='Open RPE annotations',
+                    toolTip='Open RPE annotations',
+                    triggered=self._open_annotations)
 
         self.save_data_act = QtWidgets.QAction('Save...', self, shortcut=QtGui.QKeySequence.Save,
                     icon=qt_icon('save'),
-                    statusTip='Save RPE annotations', triggered=self._save_data)
+                    statusTip='Save RPE annotations',
+                    toolTip='Save RPE annotations',
+                    triggered=self._save_data)
+
+        self.save_stats_act = QtWidgets.QAction('Export Annotation Stats...', self,
+                    toolTip='Export Statistics from the Annotation Tracking system',
+                    triggered=self._save_stats)
 
         self.delete_all_act = QtWidgets.QAction('Delete Annotations', self,
                     statusTip='Delete all RPE annotations on current image', triggered=self._delete_all)
 
-        quit = QtWidgets.QAction('Exit', self, shortcut=QtGui.QKeySequence.Quit,
+        self.quit = QtWidgets.QAction('Exit', self, shortcut=QtGui.QKeySequence.Quit,
                     statusTip="Quit the application",
                     triggered=self._quit)
         
@@ -311,26 +504,43 @@ class MainWindow(QtWidgets.QMainWindow):
                     statusTip='Reset Image View to the original size, position, brightness/contrast, etc.',
                     triggered=self._reset_brightness_contrast)
 
+        self.bc_act = QtWidgets.QAction('Brightness/Contrast...', shortcut='F3',
+                statusTip='Toggle Brightness/Contrast Window [F3]',
+                checkable=True, checked=False,
+                triggered=self._toggle_brightness_contrast)
+        
+        self.disp_act = QtWidgets.QAction('Display Settings...', iconText='Settings', shortcut='F5',
+                icon=qt_icon('settings'), toolTip='Change Display Settings [F5]',
+                triggered=self._show_display_settings)
+        
         self.data_loc_act = QtWidgets.QAction('Show data file locations', self, shortcut='Ctrl+L',
-                    statusTip='Show data locations of the current image file [Ctrl+L]',
+                    statusTip='Show data locations of the current image file',
                     triggered=self._show_data_locations)
+
+        self.meta_act = QtWidgets.QAction('Annotation Sources...', shortcut='F6',
+                toolTip='Highlight select annotation sources [F6]',
+                triggered=self._select_annotation_sources)
 
         file_menu = self.menuBar().addMenu("&File")
         file_menu.addAction(self.open_image_act)
         file_menu.addAction(self.open_annotation_act)
         file_menu.addAction(self.save_data_act)
+        file_menu.addAction(self.save_stats_act)
         file_menu.addSeparator()
         file_menu.addAction(self.delete_all_act)
         file_menu.addSeparator()
-        file_menu.addAction(quit)
+        file_menu.addAction(self.quit)
         
         view_menu = self.menuBar().addMenu("&View")
         view_menu.addAction(self.toggle_visibility)
         view_menu.addAction(self.voronoi_act)
         view_menu.addAction(self.toggle_interpolation)
         view_menu.addSeparator()
-        view_menu.addAction(self.reset_brightness_contrast)
+        view_menu.addAction(self.bc_act)
         view_menu.addAction(self.data_loc_act)
+        view_menu.addAction(self.meta_act)
+        view_menu.addSeparator()
+        view_menu.addAction(self.reset_brightness_contrast)
         view_menu.addSeparator()
 
         self.snap_annotated_act = QtWidgets.QAction('Snapshot...', self, shortcut='F7',
@@ -376,22 +586,46 @@ class MainWindow(QtWidgets.QMainWindow):
         clip.setPixmap(pixmap)
         self._status_bar.showMessage('Viewport copied to clipboard.')
     #
-    def _update_listwidget(self, image_paths, newlist=True):
-        if len(image_paths) != self._file_list.count():
+    def _update_listwidget(self, newlist=True):
+        if not self._cur_3d is None:
+            imdat = self._cur_3d
+            nitems = imdat.nframes + 1
+            if nitems != self._file_list.count():
+                newlist = True
+            self._mute = True
+            if newlist:
+                self._file_list.clear()
+                item = QtWidgets.QListWidgetItem(self._icon_map[IMG_ICON_OPEN], imdat.name, self._file_list)
+                item.setFlags(item.flags() | QtCore.Qt.ItemIsUserCheckable)
+                item.setCheckState(QtCore.Qt.Checked if imdat.anyChecked() else QtCore.Qt.Unchecked)
+                font = item.font()
+                hfont = QtGui.QFont(font.family(), font.pointSize(), QtGui.QFont.Bold)
+                item.setFont(hfont)
+                for i in range(imdat.nframes):
+                    item = QtWidgets.QListWidgetItem(f'Frame {i+1}', self._file_list)
+                    item.setFlags(item.flags() | QtCore.Qt.ItemIsUserCheckable)
+            for i in range(imdat.nframes):
+                item = self._file_list.item(i+1)
+                item.setCheckState(QtCore.Qt.Checked if imdat.isChecked(i) else QtCore.Qt.Unchecked)
+            self._mute = False
+            return
+        if len(self._input_data) != self._file_list.count():
             newlist = True
         if newlist:
             self._file_list.clear()
-            for img_path in image_paths:
-                bn, _ = os.path.splitext(os.path.basename(img_path))
-                self._file_list.addItem(self.hist.get_list_name(img_path))
+            for imdat in self._input_data:
+                ico_idx = IMG_ICON_3D if imdat.nframes > 1 else IMG_ICON_2D
+                if imdat.is_annotated:
+                    ico_idx |= IMG_ICON_ANN
+                QtWidgets.QListWidgetItem(self._icon_map[ico_idx], imdat.listname, self._file_list)
+                #self._file_list.addItem(imdat.listName)
         else:
-            for row, img_path in enumerate(image_paths):
-                self._file_list.item(row).setText(self.hist.get_list_name(img_path))
+            for row, imdat in enumerate(self._input_data):
+                self._file_list.item(row).setText(imdat.listname)
 
     def _setup_toolbar(self):
         settings_bar = self.addToolBar("Settings")
         settings_bar.setToolButtonStyle(QtCore.Qt.ToolButtonTextUnderIcon)
-        
         settings_bar.addAction(self.open_image_act)
         settings_bar.addAction(self.open_annotation_act)
         settings_bar.addAction(self.save_data_act)
@@ -489,42 +723,46 @@ class MainWindow(QtWidgets.QMainWindow):
         if len(img_filenames) == 0:
             return
         self._initialize_input_data()
+        self._image_view.reset_color()
+        if hasattr(self, 'bcwin'):
+            self.bcwin.color_info = self._image_view.color_info
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
         self._progress_dlg.setWindowTitle('Open Images')
         self._progress_dlg.show()
         self._progress_dlg.set_progress(0)
 
         for idx, img_name in enumerate(img_filenames):
-            itk_img = self._file_io.read_image(img_name)
-            self._input_data['RPE images'].append(itk_img)
-            self._input_data['RPE image file paths'].append(img_name)
-            self._input_data['RPE image names'].append(os.path.splitext(os.path.basename(img_name))[0])
-            self._input_data['colors'].append((127.5, 255.))
+            try:
+                itk_img = self._file_io.read_image(img_name)
+                assert len(itk_img.GetSize()) in (2, 3)
+            except Exception as ex:
+                print(f'Failed to open {img_name}, possibly wrong format: {ex}')
+                continue
+            imdat = InputImageData(img_name, itk_img)
+            imdat.hist_apath = self.hist.get_history_file(img_name)
+            imdat.local_apath = self.hist.get_local_file(img_name)
+            self._input_data.append(imdat)
 
             if img_dir is None:
                 img_dir = os.path.abspath(os.path.dirname(img_name))
-
-            annotated_pts = []
-            #extract annotation file
-            history_file_name = self.hist.get_history_file(img_name)
-            local_file_name = self.hist.get_local_file(img_name)
-            
-            # Read history first as it may contain more up to date info
-            if os.path.isfile(history_file_name):
-                annotated_pts = self._file_io.read_annotations(history_file_name)
-            elif os.path.isfile(local_file_name):
-                annotated_pts = self._file_io.read_annotations(local_file_name)
-            
-            if len(annotated_pts)>0 and self._file_io.is_annotation_spaced(annotated_pts, itk_img):
-                annotated_pts = self._file_io.scale_annotations(annotated_pts, itk_img)
-            self._input_data['RPE annotations'].append(annotated_pts)
-            self._file_io.write_points(history_file_name, self._input_data['RPE annotations'][idx],
-                                       itk_img.GetOrigin(), itk_img.GetSpacing())
-
+                
+            aa = {}
+            save_hist = False
+            if os.path.isfile(imdat.hist_apath):
+                aa = self._file_io.read_annotations(imdat.hist_apath)
+            elif os.path.isfile(imdat.local_apath):
+                aa = self._file_io.read_annotations(imdat.local_apath)
+                save_hist = True
+                
+            imdat.importAnnotations(aa)
+            if save_hist:
+                self._file_io.write_points(imdat.hist_apath, imdat.exportAnnotations(),
+                        imdat.itk_img.GetOrigin(), imdat.itk_img.GetSpacing())
+                
             self._progress_dlg.set_progress((idx+1)/float(len(img_filenames))* 100)
             QtWidgets.QApplication.processEvents(QtCore.QEventLoop.ExcludeUserInputEvents)
 
-        self._update_listwidget(self._input_data['RPE image file paths'])
+        self._update_listwidget()
         self._image_view.image_visibility = True
         self._display_image(0)
         self._cur_img_id = 0
@@ -539,23 +777,26 @@ class MainWindow(QtWidgets.QMainWindow):
         elif save_state:
             self.saveDir = self.loadDir = QtCore.QDir(img_dir)
             self.saveState()
-            
+
         self._status_bar.showMessage(img_dir)
     #
+    def selected_imdat(self):
+        if len(self._input_data) == 0 or self._cur_img_id == -1:
+            return None
+        return self._input_data[self._cur_img_id]
     def _snap_annotated(self):
-        if len(self._input_data['RPE images']) == 0: return
-        if self._cur_img_id == -1:
-            return
-        dlg = ao_snap_dialog(parent=self)
-        dlg.setWindowTitle(self._input_data['RPE image names'][self._cur_img_id]+' - Snapshot')
-        dlg.setWindowIcon(qt_icon('RPE_Detection.png'))
+        imdat = self.selected_imdat()
+        if imdat is None: return
+        dlg = ao_snap_dialog(parent=self, glyph_scale=0.5)
+        dlg.setWindowTitle(imdat.listname+' - Snapshot')
+        dlg.setWindowIcon(qt_icon('ConeDetectionML.png'))
         dlg.setImageData(
-            self._input_data['RPE image file paths'][self._cur_img_id],
-            img_data=self._input_data['RPE images'][self._cur_img_id],
+            imdat.filepath,
+            imdat.GetNdArray(),
             displaySettings=self._image_view.displaySettings,
             colorInfo=self._image_view.color_info,
         )
-        dlg.setPoints(self._input_data['RPE annotations'][self._cur_img_id])
+        dlg.setPoints(imdat.annotations)
         dlg.exec_()
     #
     def _open_images(self):
@@ -579,11 +820,13 @@ class MainWindow(QtWidgets.QMainWindow):
     def _get_data_index(self, csv_file_path, strict=True):
         fn = os.path.basename(csv_file_path)
         bn, ext = os.path.splitext(fn)
-        for id, img_name in enumerate(self._input_data['RPE image names']):
+        for id, imdat in enumerate(self._input_data):
             if strict:
-                if bn == img_name: return id
-            else:
-                if bn.startswith(img_name): return id
+                if bn == imdat.name:
+                    return id
+        else:
+            if bn.startswith(imdat.name):
+                return id
         return -1
 
     def _open_annotations(self):
@@ -612,20 +855,17 @@ class MainWindow(QtWidgets.QMainWindow):
         for csv_file in csv_filenames:
             id = self._get_data_index(csv_file, strict)
             if id != -1:
+                imdat = self._input_data[id]
                 try:
-                    annotated_pts = self._file_io.read_annotations(csv_file, False)
+                    aa = self._file_io.read_annotations(csv_file, False)
                 except Exception:
                     err_files.append(os.path.basename(csv_file))
                     continue
-                if self._file_io.is_annotation_spaced(annotated_pts, self._input_data['RPE images'][id]):
-                    annotated_pts = self._file_io.scale_annotations(annotated_pts,
-                                                                    self._input_data['RPE images'][id])
-                self._input_data['RPE annotations'][id] = annotated_pts
-
-                history_file_name = self.hist.get_history_file(self._input_data['RPE image file paths'][id])
-                self._file_io.write_points(history_file_name, self._input_data['RPE annotations'][id],
-                                           self._input_data['RPE images'][id].GetOrigin(),
-                                           self._input_data['RPE images'][id].GetSpacing())
+                
+                imdat.importAnnotations(aa)
+                self._file_io.write_points(imdat.hist_apath, imdat.exportAnnotations(),
+                        imdat.itk_img.GetOrigin(), imdat.itk_img.GetSpacing())
+                
         if self._cur_img_id >= 0:
             self._display_image(self._cur_img_id)
         if len(err_files) > 0:
@@ -635,13 +875,12 @@ class MainWindow(QtWidgets.QMainWindow):
                 '\n(do you attempt to open spreadsheet(s) generated by other applications?)')
     #
     def _show_data_locations(self):
-        if self._cur_img_id < 0 or self._cur_img_id >= len(self._input_data['RPE image file paths']):
+        if self._cur_img_id < 0 or self._cur_img_id >= len(self._input_data):
             return
-        img = self._input_data['RPE images'][self._cur_img_id]
-        img_path = os.path.abspath(self._input_data['RPE image file paths'][self._cur_img_id])
-        loc_path = self.hist.get_local_file(img_path)
-        hist_path = self.hist.get_history_file(img_path, False)
-        self._data_loc_dlg.setPaths(img, img_path, loc_path, hist_path)
+        imdat = self._input_data[self._cur_img_id]
+        #
+        img_path = os.path.abspath(imdat.filepath)
+        self._data_loc_dlg.setPaths(imgdat.itk_img, img_path, imdat.local_apath, imdat.hist_apath)
         self._data_loc_dlg.exec()
     #
     def next_image(self):
@@ -651,36 +890,100 @@ class MainWindow(QtWidgets.QMainWindow):
         if self._file_list.currentRow() > 0:
             self._file_list.setCurrentRow(self._file_list.currentRow() - 1)
     def _file_list_row_changed(self, newrow):
+        if self._cur_3d:
+            imdat = self._cur_3d
+            imdat.color = self._image_view.color_info
+            if newrow > 0 and newrow <= imdat.nframes:
+                imdat.cframe = newrow - 1
+                self._display_image(self._cur_img_id)
+            return
         if self._cur_img_id >= 0:
-            self._input_data['colors'][self._cur_img_id] = self._image_view.color_info
+            imdat = self._input_data[self._cur_img_id]
+            imdat.color = self._image_view.color_info
         self._cur_img_id = newrow
         self._display_image(self._cur_img_id)
+    def _file_list_item_doublecklicked(self, item):
+        row = self._file_list.row(item)
+        if self._cur_3d:
+            if row == 0:
+                self._cur_3d = None
+                row = self._cur_img_id
+            else:
+                row = -1
+        else:
+            imdat = self._input_data[row]
+            if imdat.nframes > 1:
+                self._cur_img_id = row
+                self._cur_3d = imdat
+                row = imdat.cframe + 1
+            else:
+                row = -1
+        if row >= 0:
+            self._update_listwidget(newlist=True)
+            self._file_list.setCurrentRow(row)
     #
-    def __check_z(self, idx):
-        markers = self._input_data['RPE annotations'][idx]
-        zmap = defaultdict(int)
-        for pt in markers:
-            zmap[pt[2]] += 1
-        print(self._input_data['RPE image names'][idx], zmap)
+    def _file_list_item_changed(self, item):
+        if self._mute or self._cur_3d is None: return
+        self._mute = True
+        row = self._file_list.row(item)
+        checked = item.checkState() == QtCore.Qt.Checked
+        imdat = self._cur_3d
+        if row == 0:
+            check = QtCore.Qt.Checked if checked else QtCore.Qt.Unchecked
+            for i in range(1, self._file_list.count()):
+                self._file_list.item(i).setCheckState(check)
+                imdat.setChecked(i-1, checked)
+        else:
+            imdat.setChecked(row-1, checked)
+        self._mute = False
+        if row != self._file_list.currentRow():
+            self._file_list.setCurrentRow(row)
+    #
+    # def __check_z(self, idx):
+    #     markers = self._input_data['RPE annotations'][idx]
+    #     zmap = defaultdict(int)
+    #     for pt in markers:
+    #         zmap[pt[2]] += 1
+    #     print(self._input_data['RPE image names'][idx], zmap)
+    #
+    def _set_annotations(self, idx=None):
+        if idx is None:
+            idx = self._cur_img_id
+        if idx < 0 or idx >= len(self._input_data):
+            return
+        imdat = self._input_data[idx]
+        self._image_view.set_annotations(imdat.annotations)
     #
     def _display_image(self, idx):
         self._image_view.initialization()
-        self._image_view.set_image(self._input_data['RPE images'][idx])
-        self._image_view.set_annotations(self._input_data['RPE annotations'][idx])
-
-        #self.__check_z(idx)
-
-        history_file_name = self.hist.get_history_file(self._input_data['RPE image file paths'][idx])
-        self._image_view.set_image_name(history_file_name)
+        if idx < 0 or idx >= len(self._input_data):
+            return
+        imdat = self._input_data[idx]
+        self._image_view.set_image(imdat.itk_img, n_array=imdat.GetNdArray())
+        self._image_view.set_annotations(imdat.annotations)
+        self._image_view.set_image_name(imdat.hist_apath)
         self._image_view.reset_view(True)
-        self._image_view.color_info = self._input_data['colors'][idx]
+        self._image_view.color_info = imdat.color
         self._image_view.visibility = True
         self._sync_display_controls()
+        if hasattr(self, 'bcwin'):
+            self.bcwin.color_info = self._image_view.color_info
+        if hasattr(self, 'srcwin'):
+            self.srcwin.hide()
+        self._status_bar.showMessage(f'{imdat.statusname}')
+    #
+    def write_history(self, pts=None):
+        if self._cur_img_id < 0 or self._cur_img_id >= len(self._input_data):
+            return
+        imdat = self._input_data[self._cur_img_id]
+        if pts:
+            imdat.annotations = pts
+        self._file_io.write_points(imdat.hist_apath, imdat.exportAnnotations(), imdat.itk_img.GetOrigin(), imdat.itk_img.GetSpacing())
     #
     def _detect_RPE_cells(self):
         #res = AOSettingsDialog.display_warning('Detecting RPE cells', 'Do you really want to detect cells?')
-        self._detection_para_dlg.SetImageList(self._input_data['RPE image names'])
-        c_rows = [row for row, ann in enumerate(self._input_data['RPE annotations']) if len(ann) == 0]
+        self._detection_para_dlg.SetImageList([imdat.name for imdat in self._input_data])
+        c_rows = [row for row, imdat in enumerate(self._input_data) if imdat.acount() == 0]
         self._detection_para_dlg.SetCheckedRows(c_rows)
         self._detection_para_dlg.SetHighlightedRow(self._cur_img_id)
         self._detection_para_dlg.update_builtin_weights()
@@ -688,12 +991,14 @@ class MainWindow(QtWidgets.QMainWindow):
         if res == QtWidgets.QDialog.Rejected:
             return
         
-        c_rows = self._detection_para_dlg.checkedRows()
+        c_rows = [row for row in self._detection_para_dlg.checkedRows() if self._input_data[row].countChecked() > 0]
         self.saveState()
-        if len(c_rows) == 0:
+        
+        progr_total = sum([self._input_data[row].countChecked() for row in c_rows])
+        if progr_total == 0:
             display_error('Input error', 'Nothing was checked.')
             return
-
+        
         mw = self._detection_para_dlg.model_weights
         if mw is None:
             display_error('Input errors', 'Missing Detection Model Weights!')
@@ -708,40 +1013,57 @@ class MainWindow(QtWidgets.QMainWindow):
         self._progress_dlg.setWindowTitle('Detecting RPEs ...')
         self._progress_dlg.show()
         self._progress_dlg.set_progress(0)
+        progr_cur = 0
 
         self._detection.create_detection_model(method, weights)
 
         QtWidgets.QApplication.processEvents(QtCore.QEventLoop.ExcludeUserInputEvents)
         for i, row in enumerate(c_rows):
-            annotations = self._input_data['RPE annotations'][row]
-            img = self._input_data['RPE images'][row]
-            img_name = self._input_data['RPE image file paths'][row]
-            # res_img = self._detection.detect_RPEs(img)
-            # plt.imshow(res_img, cmap='gray')
-            # plt.show()
-            detection_pts = self._detection.detect_RPEs(img, self._detection_para_dlg.image_fov,
-                self._detection_para_dlg.probablity_threshold, self._detection_para_dlg.clustering_radius)
+            imdat = self._input_data[row]
+            
+            kwarg = {
+                'user': '=auto=',
+                'method': method,
+                'FOV': self._detection_para_dlg.image_fov,
+                'probablity_threshold': self._detection_para_dlg.probablity_threshold,
+                'clustering_radius': self._detection_para_dlg.clustering_radius,
+            }
+            
+            o = imdat.itk_img.GetOrigin()
+            s = imdat.itk_img.GetSpacing()
+            aa_src = {}
+            if imdat.nframes > 1:
+                n_array = sitk.GetArrayFromImage(imdat.itk_img)
+                for fr in range(imdat.nframes):
+                    if not imdat.isChecked(fr): continue
+                    itk_img = sitk.GetImageFromArray(n_array[fr])
+                    detection_pts = self._detection.detect_RPEs(itk_img, self._detection_para_dlg.image_fov,
+                            self._detection_para_dlg.probablity_threshold, self._detection_para_dlg.clustering_radius)
+                    aa_src[fr] = [[o[0] + pt[0]*s[0], o[1] + pt[1]*s[1], -0.001] for pt in detection_pts]
+                    progr_cur += 1
+                    self._progress_dlg.set_progress(float(progr_cur)/float(progr_total) * 100.)
+                    QtWidgets.QApplication.processEvents(QtCore.QEventLoop.ExcludeUserInputEvents)
+            else:
+                detection_pts = self._detection.detect_RPEs(imdat.itk_img, self._detection_para_dlg.image_fov,
+                            self._detection_para_dlg.probablity_threshold, self._detection_para_dlg.clustering_radius)
+                aa_src[0] = [[o[0] + pt[0]*s[0], o[1] + pt[1]*s[1], -0.001] for pt in detection_pts]
+                progr_cur += 1
+                self._progress_dlg.set_progress(float(progr_cur)/float(progr_total) * 100.)
+                QtWidgets.QApplication.processEvents(QtCore.QEventLoop.ExcludeUserInputEvents)
 
-            annotations.clear()
-            for pt in detection_pts:
-                tmp_pt = []
-                tmp_pt.append(img.GetOrigin()[0] + img.GetSpacing()[0] * pt[0])
-                tmp_pt.append(img.GetOrigin()[1] + img.GetSpacing()[1] * pt[1])
-                # Add small negative value (-0.001) to Z-coordinate to make annotation
-                # closer to the camera
-                tmp_pt.append(-0.001)
-                annotations.append(tmp_pt)
-
-            history_file_name = self.hist.get_history_file(img_name)
-            self._file_io.write_points(history_file_name, annotations, img.GetOrigin(), img.GetSpacing())
-
-            self._progress_dlg.set_progress((i+1) / float(len(c_rows))* 100)
-            QtWidgets.QApplication.processEvents(QtCore.QEventLoop.ExcludeUserInputEvents)
-
+            aa = {}
+            for fr, src_pts in aa_src.items():
+                mc = MetaList(src_pts, meta=MetaMap(MetaRecord(**kwarg)))
+                mc.meta.addmeta(MetaRecord(), setdefault=True)
+                aa[fr] = mc
+            imdat.importAnnotations(aa)
+            
+            self._file_io.write_points(imdat.hist_apath, imdat.exportAnnotations(), imdat.itk_img.GetOrigin(), imdat.itk_img.GetSpacing())        
+            
         if not self._cur_img_id in c_rows:
             self._file_list.setCurrentRow(c_rows[0])
         else:
-            self._image_view.set_annotations(self._input_data['RPE annotations'][self._cur_img_id])
+            self._image_view.set_annotations(self._input_data[self._cur_img_id].annotations)
             self._image_view.reset_view()
 
         self._progress_dlg.set_progress(0);
@@ -751,7 +1073,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self._sync_display_controls()
 
     def _save_data(self):
-        if len(self._input_data['RPE images']) == 0: return
+        if len(self._input_data) == 0: return
         try:
             try:
                 sdir = self.saveDir.canonicalPath()
@@ -760,29 +1082,30 @@ class MainWindow(QtWidgets.QMainWindow):
             dir_name = QtWidgets.QFileDialog.getExistingDirectory(self, \
                     'Select saving directory', sdir)
             if dir_name:
-                self._file_io.write_annotations(dir_name, self._input_data)
-                self._update_listwidget(self._input_data['RPE image file paths'], newlist=False)
+                for imdat in self._input_data:
+                    fn = os.path.basename(imdat.local_apath)
+                    apath = os.path.abspath(os.path.join(dir_name, fn))
+                    self._file_io.write_points(apath, imdat.exportAnnotations(), imdat.GetOrigin(), imdat.GetSpacing())
+                #self._file_io.write_annotations(dir_name, self._input_data)
+                self._update_listwidget(newlist=False)
                 self.saveDir = QtCore.QDir(dir_name)
                 self.saveState()
         except Exception as ex:
-            display_error('Error saving data', ex)
+            display_error('Error saving data', str(ex))
             
     def _delete_all(self, event):
-        id = self._cur_img_id
-        if id < 0: return
-        if len(self._input_data['RPE annotations'][id]) == 0: return
+        if self._cur_img_id < 0: return
+        imdat = self._input_data[self._cur_img_id]
+        if imdat.acount() == 0: return
         if not askYesNo('Confirm',
                 'You are about to delete all annotations \non the current image.',
                 detail='This operation can not be undone. \nContinue?'):
             return
         self._image_view.visibility = True
         self._sync_display_controls()
-        self._input_data['RPE annotations'][id] = []
-        history_file_name = self.hist.get_history_file(self._input_data['RPE image file paths'][id])
-        self._file_io.write_points(history_file_name, self._input_data['RPE annotations'][id],
-                                   self._input_data['RPE images'][id].GetOrigin(),
-                                   self._input_data['RPE images'][id].GetSpacing())
-        self._image_view.set_annotations(self._input_data['RPE annotations'][id])
+        imdat.aclear()
+        self.write_history(pts=None)
+        self._image_view.set_annotations(imdat.annotations)
         self._image_view.reset_view(False)
 
     def _quit(self, event):
@@ -791,6 +1114,13 @@ class MainWindow(QtWidgets.QMainWindow):
     def _set_mouse_mode(self, m=MouseOp.Normal):
         self._mouse_status = m
         self._image_view.set_mouse_mode(self._mouse_status)
+        if m != MouseOp.Normal:
+            if hasattr(self, 'bcwin') and not self.bcwin.manual:
+                self.bcwin.close()
+                del self.bcwin
+                self._mute = True
+                self.bc_act.setChecked(False)
+                self._mute = False
 
     def _sync_display_controls(self):
         self._mute = True
@@ -801,13 +1131,15 @@ class MainWindow(QtWidgets.QMainWindow):
     def _on_display_settings(self, param):
         self._image_view.displaySettings = param
         self._sync_display_controls()
-        self.saveState()
         self._image_view.reset_view(False)
+        self.saveState()
     #
     def _undo(self):
         self._image_view.visibility = True
         self._sync_display_controls()
         self._image_view.undo()
+        if hasattr(self, 'bcwin'):
+            self.bcwin.color_info = self._image_view.color_info
     #
     def _toggle_visibility(self):
         if not self._mute:
@@ -826,10 +1158,66 @@ class MainWindow(QtWidgets.QMainWindow):
     #
     def _reset_brightness_contrast(self):
         self._image_view.reset_color()
+        if hasattr(self, 'bcwin'):
+            self.bcwin.color_info = self._image_view.color_info
         if self._cur_img_id >= 0:
-            self._input_data['colors'][self._cur_img_id] = self._image_view.color_info
+            self._input_data[self._cur_img_id].color = self._image_view.color_info
         self._image_view.reset_view(True)
         self._image_view.image_visibility = True
+    #
+    def _findpoint(self, x, y, pts, delta=5.):
+        if not pts:
+            return -1
+        dsq = delta*delta
+        for i, pt in enumerate(pts):
+            dist = (pt[0]-x)**2 + (pt[1]-y)**2
+            if dist < dsq:
+                return i
+        return -1
+    def trackMousePos(self, x, y):
+        msg = ''
+        ptidx = self._findpoint(x, y, None if self._cur_img_id < 0 else self._input_data[self._cur_img_id].annotations)
+        if ptidx >= 0:
+            pts = self._input_data[self._cur_img_id].annotations
+            if hasattr(pts, 'objmeta'):
+                pt = pts[ptidx]
+                meta = pts.objmeta(pt)
+                msg = f'({pt[0]:.0f},{pt[1]:.0f}): {meta}'
+        if ptidx != self._status_id:
+            self._status_id = ptidx
+            self.status(msg, temp=True)
+    #
+    def _update_sources(self):
+        self._mute = True
+        self._set_annotations(self._cur_img_id)
+        self._image_view.reset_view()
+        self._mute = False
+    #
+    def resetSources(self, update=False):
+        id = self._cur_img_id
+        if id < 0: return
+        annotations = self._input_data[id].annotations
+        if hasattr(annotations, 'setGrayMeta'):
+            annotations.setGrayMeta([])
+        self._set_annotations(self._cur_img_id)
+        if update:
+            self._image_view.reset_view()
+    #
+    def _select_annotation_sources(self, e):
+        id = self._cur_img_id
+        if id < 0: return
+        annotations = self._input_data[id].annotations
+
+        self._image_view.visibility = True
+        self._sync_display_controls()
+        self._image_view.reset_view()
+        
+        if not hasattr(self, 'srcwin'):
+            self.srcwin = ao_source_window(self)
+        self.srcwin.setMetaList(annotations)
+        self.srcwin.show()
+        self.srcwin.activateWindow()
+    #
 
     @property
     def mouse_status(self):
@@ -838,4 +1226,51 @@ class MainWindow(QtWidgets.QMainWindow):
     def _show_display_settings(self, e):
         self._display_settings_dlg.displaySettings = self._image_view.displaySettings
         self._display_settings_dlg.showNormal()
+    #
+    def onBCci(self, ci):
+        #self.push_color_undo(self._image_view.color_info)
+        self._image_view.color_info = ci
+    def onIWci(self, ci):
+        if not hasattr(self, 'bcwin'):
+            self.bcwin = ao_brightness_contrast(self, parent=self.vtkFrame, callback=self.onBCci)
+            self.bcwin.color_info = self._image_view.color_info
+            self.bcwin.manual = False
+            self._mute = True
+            self.bc_act.setChecked(True)
+            self._mute = False
+        else:
+            self.bcwin.color_info = ci
+        self.bcwin.show()
+    def _toggle_brightness_contrast(self):
+        if self._mute: return
+        if self.bc_act.isChecked():
+            if not hasattr(self, 'bcwin'):
+                self.bcwin = ao_brightness_contrast(self, parent=self.vtkFrame, callback=self.onBCci)
+            self.bcwin.color_info = self._image_view.color_info
+            self.bcwin.show()
+            self.bcwin.activateWindow()
+        else:
+            if hasattr(self, 'bcwin'):
+                self.bcwin.close()
+                del self.bcwin
+    #
+    def _save_stats(self):
+        if len(self._input_data) == 0: return
+        try:
+            try:
+                sdir = self.saveDir.canonicalPath()
+            except Exception:
+                sdir = QtCore.QDir.homePath()
+            dir_name = QtWidgets.QFileDialog.getExistingDirectory(self, \
+                    'Select Export directory', sdir)
+            if not dir_name:
+                return
+            
+            cnt = self._file_io.write_annotation_stats(dir_name, self._input_data)
+            self.status('%d Annotation Tracker Statistics file(s) exported to %s' % (cnt, dir_name))
+            #self._update_listwidget(self._input_data['image file paths'], newlist=False)
+            #self.saveDir = QtCore.QDir(dir_name)
+            #self.saveState()
+        except Exception as ex:
+            display_error('Error annotation stats', ex)
     #

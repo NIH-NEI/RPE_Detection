@@ -9,7 +9,7 @@ from scipy.spatial import Voronoi
 import SimpleITK as sitk
 from PyQt5 import QtCore, QtWidgets, QtGui
 
-from AODisplay import AoColorButton, ao_display_settings
+from AODisplay import AoColorButton, ao_display_settings_dlg
 
 # Clip a segment into a rectangular area
 class SegmentClipper(object):
@@ -109,7 +109,7 @@ class ao_snap_dialog(QtWidgets.QDialog):
         self.voronoi_segments = []
         #
         self._setup_layout()
-        self._dsp_dlg = ao_display_settings(self, contour_settings=False)
+        self._dsp_dlg = ao_display_settings_dlg(self, contour_settings=False)
         #
         self._dsp_dlg.changed.connect(self._on_display_settings)
         self._mute = False

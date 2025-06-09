@@ -30,6 +30,7 @@ class UndoStack(object):
     def __init__(self, maxundo=1000):
         self.maxundo = maxundo
         #
+        self._busy = False
         self.buf = []
     #
     def clear(self):
@@ -43,9 +44,13 @@ class UndoStack(object):
         if len(self.buf) > self.maxundo:
             self.buf[self.maxundo:] = []
     #
+    def push_img_undo(self, ci):
+        if not self._busy:
+            self.push_undo(ci, m_del=self.IMG, m_more=False)
+    #
     def pop_undo(self):
         if len(self.buf) == 0:
-            return ADD, False, None
+            return self.ADD, False, None
         ent = self.buf.pop(0)
         return ent.m_del, ent.m_more, ent.pt
     #
@@ -209,9 +214,11 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
         self.AddObserver("CharEvent", self.charEvent)
 
         self.parent = parent
+        self.mainWin = None if self.parent is None else self.parent.parent
         self._mouse_mode = mouse_mode
         self._annotations = []
         self._annotation_pts = None #used for VTK
+        self._grayed_pts = None #used for VTK
         self._image_name = None
         self._tolerance = 0
         self._image_origin = None
@@ -247,10 +254,15 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
     @property
     def annotation_pts(self):
         return self._annotation_pts
-
     @annotation_pts.setter
     def annotation_pts(self, val):
         self._annotation_pts = val
+    @property
+    def grayed_pts(self):
+        return self._grayed_pts
+    @grayed_pts.setter
+    def grayed_pts(self, val):
+        self._grayed_pts = val
 
     def set_image_name(self, name):
         self._image_name = name
@@ -260,6 +272,13 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
 
     def set_image_spacing(self, spacing):
         self._image_spacing = spacing
+        
+    def reset_mouse_state(self):
+        self._mouse_down = False
+        self._ctrl_down = False
+        self._shift_down = False
+        self._alt_down = False
+        self._mouse_scroll = False
 
     @property
     def tolerance(self):
@@ -322,17 +341,33 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
 
     def _update_annotations(self, upd_voronoi=True):
         self._annotation_pts.Initialize()
-        if len(self._annotations) is not 0:
-            self._annotation_pts.SetData(numpy_support.numpy_to_vtk(np.asarray(self._annotations)))
+        self._grayed_pts.Initialize()
+        norm_pts = []
+        gray_pts = []
+        if hasattr(self._annotations, 'isGray'):
+            for pt in self._annotations:
+                if self._annotations.isGray(pt):
+                    gray_pts.append(pt)
+                else:
+                    norm_pts.append(pt)
+        else:
+            norm_pts = [pt for pt in self._annotations]
+        if len(norm_pts) is not 0:
+            self._annotation_pts.SetData(numpy_support.numpy_to_vtk(np.asarray(norm_pts)))
+        if len(gray_pts) is not 0:
+            self._grayed_pts.SetData(numpy_support.numpy_to_vtk(np.asarray(gray_pts)))
         self._annotation_pts.Modified()
-        write_points(self._image_name, self._annotations, self._image_origin, self._image_spacing)
+        self._grayed_pts.Modified()
+        #write_points(self._image_name, self._annotations, self._image_origin, self._image_spacing)
         if not self.parent is None:
+            self.parent.write_history(self._annotations)
             if upd_voronoi:
                 self.parent.update_voronoi_segments()
             else:
                 self.parent.reset_view(False)
     #
     def undo(self):
+        self._undo_stack._busy = True
         has_more = not self._undo_stack.is_empty()
         dirty = False
         while has_more:
@@ -352,6 +387,7 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
                 dirty = True
         if dirty:
             self._update_annotations()
+        self._undo_stack._busy = False
     #
     def delete_points_inside(self):
         contour = [(pt[0], pt[1]) for pt in self._contour_pts]
@@ -361,6 +397,7 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
         has_more = False
         contour = optimizeContour(contour)
         bb = boundingBox(contour)
+        print('delM:', type(self._annotations))
         for pt in self._annotations:
             if isInBB(bb, pt) and isPointInside(pt, contour):
                 self._undo_stack.push_undo(pt, UndoStack.DEL, has_more)
@@ -368,7 +405,10 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
             else:
                 annotations.append(pt)
         if has_more:
-            self._annotations[:] = annotations
+            if hasattr(self._annotations, 'update'):
+                self._annotations.update(annotations)
+            else:
+                self._annotations[:] = annotations
             self._update_annotations()
     #
 
@@ -492,7 +532,19 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
             self._undo_stack.push_undo(self.ci, UndoStack.IMG, False)
         obj.OnLeftButtonUp()
     #
+    def _update_mouse_pos(self, event):
+        if self.mainWin is None or not hasattr(self.mainWin, 'trackMousePos'):
+            return
+        inter = self.GetInteractor()
+        mx, my = inter.GetEventPosition()
+        pick_value = inter.GetPicker().Pick(mx, my, 0, self.GetDefaultRenderer())
+        if pick_value == 0:
+            x = y = -1
+        else:
+            x, y, z = inter.GetPicker().GetPickPosition()
+        self.mainWin.trackMousePos(x, y)
     def mouseMoveEvent(self, obj, event):
+        self._update_mouse_pos(event)
         if self._shift_down:
             obj.OnMouseMove()
             return
@@ -531,6 +583,13 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
                         self.parent.reset_view(False)
                 return
         obj.OnMouseMove()
+        if self._mouse_down:
+            self.parent.validate_color_info()
+            _ci = self.parent.color_info
+            if math.fabs(_ci[0] - self.ci[0]) > 0.01 or math.fabs(_ci[1] - self.ci[1]) > 0.01:
+                if hasattr(self.mainWin, 'onIWci'):
+                    self.mainWin.onIWci(_ci)
+    #
     def middleButtonPressEvent(self, obj, event):
         while QtWidgets.QApplication.overrideCursor():
             QtWidgets.QApplication.restoreOverrideCursor()
@@ -615,16 +674,24 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
     #
 
 class ao_visualization(object):
-    def __init__(self, vtk_widget, auto_tolerance=False):
+    def __init__(self, vtk_widget, parent=None, auto_tolerance=False):
         self._vtk_widget = vtk_widget
         self._draw_image()
+        self.parent = parent
         self.auto_tolerance = auto_tolerance
 
         self._interactive_contour_width = 3
         self._voronoi_contour_width = 1.5
         self._glyph_size = 6
         self._gs = 1. if self.auto_tolerance else 0.5
+        
+        self._min_color_level = -256.
+        self._max_color_level = 512.
+        self._min_color_window = 0.1
+        self._max_color_window = 4096.
+        
         self._draw_annotations()
+        self._draw_grayed()
         self._draw_interactive_contours()
         self._draw_voronoi_contours()
         self._draw_background_region()
@@ -633,6 +700,7 @@ class ao_visualization(object):
         self._render.AddActor(self._bkg_actor)
         self._render.AddActor(self._image_actor)
         self._render.AddActor(self._annotated_actor)
+        self._render.AddActor(self._grayed_actor)
         self._render.AddActor(self._interactive_contour_actor)
         self._render.AddActor(self._voronoi_contour_actor)
         self._render.ResetCamera()
@@ -641,6 +709,7 @@ class ao_visualization(object):
         self._style = MouseAnnotationInteractor(parent=self)
         self._style.SetDefaultRenderer(self._render)
         self._style.annotation_pts = self._annotated_points
+        self._style.grayed_pts = self._grayed_points
         self._style.tolerance = 3.
         #self._vtk_widget.SetInteractorStyle(vtk.vtkInteractorStyleImage())
         self._vtk_widget.SetInteractorStyle(self._style)
@@ -688,6 +757,29 @@ class ao_visualization(object):
         self._annotated_actor = vtk.vtkActor()
         self._annotated_actor.SetMapper(self._annotated_mapper)
         self._annotated_actor.GetProperty().SetColor(0, 1, 0)
+
+    def _draw_grayed(self):
+        self._grayed_points = vtk.vtkPoints()
+        self._grayed_points.SetDataTypeToFloat()
+        self._grayed_poly = vtk.vtkPolyData()
+        self._grayed_poly.SetPoints(self._grayed_points)
+
+        self._grayed_glyph_source = vtk.vtkGlyphSource2D()
+        self._grayed_glyph_source.SetGlyphTypeToCross()
+        self._grayed_glyph_source.SetScale(self._glyph_size*self._gs)
+
+        self._grayed_glyph = vtk.vtkGlyph3D()
+        self._grayed_glyph.SetSourceConnection(self._grayed_glyph_source.GetOutputPort())
+        self._grayed_glyph.SetInputData(self._grayed_poly)
+
+        self._grayed_mapper = vtk.vtkDataSetMapper()
+        self._grayed_mapper.SetInputConnection(self._grayed_glyph.GetOutputPort())
+        self._grayed_mapper.ScalarVisibilityOff()
+
+        self._grayed_actor = vtk.vtkActor()
+        self._grayed_actor.SetMapper(self._grayed_mapper)
+        self._grayed_actor.GetProperty().SetColor(0.25, 0.25, 0.25)
+        self._grayed_actor.GetProperty().SetOpacity(0.75)
 
     def _draw_interactive_contours(self):
         self._interactive_contour_points = vtk.vtkPoints()
@@ -746,6 +838,8 @@ class ao_visualization(object):
 
         self._annotated_points.Initialize()
         self._annotated_poly.Modified()
+        self._grayed_points.Initialize()
+        self._grayed_poly.Modified()
 
         self._interactive_contour_points.Initialize()
         self._interactive_contour_lines.Initialize()
@@ -772,16 +866,22 @@ class ao_visualization(object):
     def reset_view(self, camera_flag=False):
         if camera_flag:
             self._change_camera_orientation()
+            self._style.reset_mouse_state()
         self._vtk_widget.GetRenderWindow().Render()
     #  
     def set_mouse_mode(self, mouse_mode):
         self._style.set_mouse_mode(mouse_mode)
-
-    def _convert_nparray_to_vtk_image(self, itk_img, vtk_img):
+    #
+    def write_history(self, pts):
+        if self.parent:
+            #self.parent.write_history(pts)
+            self.parent.write_history(None)
+    #
+    def _convert_nparray_to_vtk_image(self, itk_img, n_array, vtk_img):
         img_size = itk_img.GetSize()
         img_orig = itk_img.GetOrigin()
         img_spacing = itk_img.GetSpacing()
-        n_array = sitk.GetArrayFromImage(itk_img)
+        #n_array = sitk.GetArrayFromImage(itk_img)
         v_image = numpy_support.numpy_to_vtk(n_array.flat)
         vtk_img.SetOrigin(img_orig[0], img_orig[1], 0)
         vtk_img.SetSpacing(img_spacing[0], img_spacing[1], 1.0)
@@ -789,14 +889,18 @@ class ao_visualization(object):
         vtk_img.AllocateScalars(numpy_support.get_vtk_array_type(n_array.dtype), 1)
         vtk_img.GetPointData().SetScalars(v_image)
 
-    def set_image(self, itk_img):
-        self._style.set_image_origin(itk_img.GetOrigin())
-        self._style.set_image_spacing(itk_img.GetSpacing())
-
+    def set_image(self, itk_img, n_array=None):
+        self._style.reset_mouse_state()
+        itkorig = itk_img.GetOrigin()
+        itkspa = itk_img.GetSpacing()
+        self._style.set_image_origin(itkorig)
+        self._style.set_image_spacing(itkspa)
+        if n_array is None:
+            n_array = sitk.GetArrayFromImage(itk_img)
         self._image_data.Initialize()
-        self._convert_nparray_to_vtk_image(itk_img, self._image_data)
+        self._convert_nparray_to_vtk_image(itk_img, n_array, self._image_data)
         if self.auto_tolerance:
-            self._style.tolerance = 6*(itk_img.GetSpacing()[0]+itk_img.GetSpacing()[1])
+            self._style.tolerance = 6*(itkspa[0]+itkspa[1])
         self._image_data.Modified()
         self._style._undo_stack.clear()
         #
@@ -830,9 +934,24 @@ class ao_visualization(object):
     def set_annotations(self, pts):
         self._style.set_annotations(pts)
         self._annotated_points.Initialize()
-        if len(pts) is not 0:
-            self._annotated_points.SetData(numpy_support.numpy_to_vtk(np.asarray(pts)))
+        self._grayed_points.Initialize()
+        gray_pts = []
+        norm_pts = []
+        if hasattr(pts, 'isGray'):
+            for pt in pts:
+                if pts.isGray(pt):
+                    gray_pts.append(pt)
+                else:
+                    norm_pts.append(pt)
+        else:
+            norm_pts = [pt for pt in pts]
+            
+        if len(norm_pts) != 0:
+            self._annotated_points.SetData(numpy_support.numpy_to_vtk(np.asarray(norm_pts)))
+        if len(gray_pts) != 0:
+            self._grayed_points.SetData(numpy_support.numpy_to_vtk(np.asarray(gray_pts)))
         self._annotated_points.Modified()
+        self._grayed_points.Modified()
         self._style._undo_stack.clear()
         self.update_voronoi_segments()
         
@@ -852,6 +971,7 @@ class ao_visualization(object):
     def glyph_visibility(self, st):
         self._glyph_visibility = st
         self._annotated_actor.SetVisibility(self._glyph_visibility and self._visibility)
+        self._grayed_actor.SetVisibility(self._glyph_visibility and self._visibility)
     #
     @property
     def glyph_size(self):
@@ -860,6 +980,7 @@ class ao_visualization(object):
     def glyph_size(self, sz):
         self._glyph_size = sz
         self._annotated_glyph_source.SetScale(self._glyph_size*self._gs)
+        self._grayed_glyph_source.SetScale(self._glyph_size*self._gs)
         if not self.auto_tolerance:
             tol = self._glyph_size * self._gs
             if tol < 0.25: tol = 0.25
@@ -956,6 +1077,7 @@ class ao_visualization(object):
     def visibility(self, st):
         self._visibility = st
         self._annotated_actor.SetVisibility(self._glyph_visibility and self._visibility)
+        self._grayed_actor.SetVisibility(self._glyph_visibility and self._visibility)
         self.update_voronoi_segments()
         self.reset_view()
     #
@@ -975,9 +1097,33 @@ class ao_visualization(object):
         except Exception:
             cval = 127.5
             cwin = 255.
+        ci = (cval, cwin)
+        if self.color_info == ci: return
+        self._style._undo_stack.push_img_undo(ci)
         self._image_actor.GetProperty().SetColorLevel(cval)
         self._image_actor.GetProperty().SetColorWindow(cwin)
         self._vtk_widget.GetRenderWindow().Render()
+    #
+    def validate_color_info(self):
+        p = self._image_actor.GetProperty()
+        clvl = p.GetColorLevel()
+        cwin = p.GetColorWindow()
+        dirty = False
+        if clvl > self._max_color_level:
+            clvl = self._max_color_level
+            dirty = True
+        elif clvl < self._min_color_level:
+            clvl = self._min_color_level
+            dirty = True
+        if cwin > self._max_color_window:
+            cwin = self._max_color_window
+            dirty = True
+        elif cwin < self._min_color_window:
+            cwin = self._min_color_window
+            dirty = True
+        if dirty:
+            p.SetColorLevel(clvl)
+            p.SetColorWindow(cwin)
     #
     def set_interactive_contour(self, pts=None):
         self._interactive_contour_points.Initialize()
