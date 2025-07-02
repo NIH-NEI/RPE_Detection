@@ -288,6 +288,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setAcceptDrops(True)
         self._mute = False
     #
+    def keyReleaseEvent(self, e):
+        if e.key() in (Qt.Qt.Key_Alt, Qt.Qt.Key_AltGr):
+            while QtWidgets.QApplication.overrideCursor():
+                QtWidgets.QApplication.restoreOverrideCursor()
+            self._image_view.alt_reset()
+    #
     def status(self, msg, temp=False):
         if temp:
             self.mposText.setText(msg)

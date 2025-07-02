@@ -1,3 +1,6 @@
+#### Version 1.2.0 (2025-07-02) ####
+- Alt+Left Click in Add/Move mouse modes erases markers (instead of Ctrl+Left Click).
+
 #### Version 1.2.0 (2025-06-07) ####
 - Added Brightness/Contrast widget, toggled by F3, to change brightness/contrast in any mouse mode and
 provide visual information about current settings.

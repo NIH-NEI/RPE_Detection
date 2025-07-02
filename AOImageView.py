@@ -201,7 +201,7 @@ class SegmentClipper(object):
 
 class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
     def __init__(self, mouse_mode = 0, parent=None):
-        self._win = platform.system().lower() == 'windows'
+        #self._win = platform.system().lower() == 'windows'
         self.AddObserver("LeftButtonPressEvent",self.leftButtonPressEvent)
         self.AddObserver("LeftButtonReleaseEvent", self.leftButtonReleaseEvent)
         self.AddObserver("MiddleButtonPressEvent", self.middleButtonPressEvent)
@@ -397,7 +397,6 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
         has_more = False
         contour = optimizeContour(contour)
         bb = boundingBox(contour)
-        print('delM:', type(self._annotations))
         for pt in self._annotations:
             if isInBB(bb, pt) and isPointInside(pt, contour):
                 self._undo_stack.push_undo(pt, UndoStack.DEL, has_more)
@@ -413,10 +412,10 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
     #
 
     def _GetControlKey(self):
-        # Check for either Ctrl or Alt (Ctrl+mouse does not work on Mac)
-        if self.GetInteractor().GetControlKey():
+        # Check for Ctrl/Alt key down for mouse mode override
+        if self.GetInteractor().GetAltKey():
             return True
-        return not self._win and self._alt_down
+        return self._alt_down
     def leftButtonPressEvent(self, obj, event):
         while QtWidgets.QApplication.overrideCursor():
             QtWidgets.QApplication.restoreOverrideCursor()
@@ -441,7 +440,7 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
         op = self._mouse_mode
         if self._GetControlKey() and op in (MouseOp.Add, MouseOp.Move):
             op = MouseOp.Remove
-            self._ctrl_down = True
+            self._alt_down = True
             QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CrossCursor)
             
         mx, my = inter.GetEventPosition()
@@ -501,7 +500,7 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
         op = self._mouse_mode
         if self._GetControlKey() and op in (MouseOp.Add, MouseOp.Move):
             op = MouseOp.Remove
-            self._ctrl_down = True
+            self._alt_down = True
             QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CrossCursor)
         if op == MouseOp.Remove:
             return
@@ -611,11 +610,15 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
             self._mouse_in = True
             if self._shift_down:
                 QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.OpenHandCursor)
+            if self._GetControlKey() and self._mouse_mode in (MouseOp.Add, MouseOp.Move):
+                self._alt_down = True
+                QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CrossCursor)
         else:
             # If a second OnEnter() received without a matching OnLeave(),
             # the QVTKWidget does not have keyboard focus and it won't receive OnKeyUp() for Shift either.
             # Like the user tried to drag the mouse from another widget while holding Shift down.
             self._shift_down = False
+            self._alt_down = False
         obj.OnEnter()
     def charEvent(self, obj, event):
         key = self.GetInteractor().GetKeyCode()
@@ -624,7 +627,6 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
         obj.OnChar()
     def leaveEvent(self, obj, event):
         self._mouse_in = False
-        self._alt_down = False
         while QtWidgets.QApplication.overrideCursor():
             QtWidgets.QApplication.restoreOverrideCursor()
         obj.OnLeave()
@@ -632,9 +634,6 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
         while QtWidgets.QApplication.overrideCursor():
             QtWidgets.QApplication.restoreOverrideCursor()
         key = self.GetInteractor().GetKeySym()
-        if key == 'Alt_L':
-            self._alt_down = True
-            if not self._win: key = 'Control_L'
         if key == 'Up':
             cfg.main_wnd.previous_image()
             return
@@ -648,26 +647,21 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
             self._shift_down = True
             if not self._mouse_scroll:
                 QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.OpenHandCursor)
-        elif key == 'Control_L':
+        if key == 'Alt_L':
+            self._alt_down = True
             if self._mouse_mode in (MouseOp.Add, MouseOp.Move):
-                self._ctrl_down = True
                 QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CrossCursor)
-                return
-        if not self._alt_down:
-            obj.OnKeyPress()
+        obj.OnKeyPress()
     def keyReleaseEvent(self, obj, event):
         while QtWidgets.QApplication.overrideCursor():
             QtWidgets.QApplication.restoreOverrideCursor()
         key = self.GetInteractor().GetKeySym()
-        if key == 'Alt_L':
-            self._alt_down = False
-            if not self._win: key = 'Control_L'
         if key == 'Up' or key == 'Down':
             return
-        if self._ctrl_down:
-            if key == 'Control_L':
-                self._ctrl_down = False
-                return
+        if key == 'Alt_L':
+            self._alt_down = False
+        if key == 'Control_L':
+            self._ctrl_down = False
         if key == 'Shift_L':
             self._shift_down = False
         obj.OnKeyRelease()
@@ -723,6 +717,9 @@ class ao_visualization(object):
         self._interpolation = True
         self._voronoi = False
         self._image_visibility = True
+    #
+    def alt_reset(self):
+        self._style._alt_down = False
     #
     def _draw_image(self):
         self._image_data = vtk.vtkImageData()
