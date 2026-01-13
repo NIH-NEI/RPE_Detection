@@ -1,5 +1,5 @@
 # RPE Detection
-#### A software package for identifying retinal pigment epithelial (RPE) cells in adaptive optics images, using pre-trained A-GAN machine learning model and manual editing.
+#### A software package for identifying retinal pigment epithelial (RPE) cells in adaptive optics images, using spatially aware dense-LinkNet based regression machine learning model and manual editing.
 
 *If any portion of this code is used, please cite the following paper in your publication:*
 
