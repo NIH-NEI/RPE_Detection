@@ -1,5 +1,5 @@
 # RPE Detection
-#### A software package for identifying retinal pigment epithelial (RPE) cells in non-confocal adaptive optics images, using pre-trained A-GAN machine learning model and manual editing.
+#### A software package for identifying retinal pigment epithelial (RPE) cells in adaptive optics images, using pre-trained A-GAN machine learning model and manual editing.
 
 *If any portion of this code is used, please cite the following paper in your publication:*
 
@@ -26,23 +26,27 @@ There are two ways to use the software:
 
 ## Option 1: Run using prebuilt executables
 
-1. Download the executable file (.exe for Windows and .dmg for macOS) from the **Releases** section with the Latest tag.
+1. Download the executable file (`.exe` for Windows and `.dmg` for macOS) from the **Releases** section with the Latest tag.
 
-2. Install the executable file.
+2. On Windows systems, installation can be completed by double-clicking the `.exe` file and following the on-screen prompts. For Mac OS, the `.dmg` is a Mac OS disk image file. When opened, it asks for accepting the license agreement, then mounts itself as an external drive and opens a Finder window, that looks like this:
+
+   <img src="assets/macinstall.png" />
+
+   You can run the app by double-clicking on the icon, or copying it to your Applications folder by dragging the icon over "Applications". Once RPE_Detection is in your Applications folder, you can eject the *RPE_Detection* disk, and delete the `.dmg` file.
 
 3. Once installed, double click on the software icon to open the software.
 
    <img src="assets/RPEDetect1.png"/>
 
-4. Click on the **Open** button, to load the input cone image.
+4. Click on the **Open** button, to load the input RPE image.
 
    <img src="assets/RPEDetectOpen2.png"/>
 
-5. Then click on the **Detect** button to automatically detect the cones.
+5. Then click on the **Detect** button to automatically detect the RPE cells.
 
    <img src="assets/RPEDetectbutton3.png"/>
 
-6. The **Mark**, **Erase S**, **Erase M** and **Undo** button allows to add, erase single/multiple and undo past operations.
+6. The **Mark**, **Erase S**, **Erase M** and **Undo** buttons allow to add annotations, erase single/multiple annotations and undo past operation.
 
 7. The **Settings** tab provides options to display the centroids of the RPE cells and the Voronoi map.
 
@@ -50,7 +54,7 @@ There are two ways to use the software:
 
    <img src="assets/RPEDetectVoronoi5.png"/>
 
-8. The **Save** button saves the .CSV file with the (x,y) coordinates of the RPE cell centroids in the location of the input image.
+8. The **Save** button saves the `.csv` file with the (x,y) coordinates of the RPE cell centroids in the location of the input image.
 
 9. The **Help** button provides more documentation about the software features including a table of keyboard shortcuts for common actions.
 
