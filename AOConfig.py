@@ -1,5 +1,7 @@
 import os, datetime, time, shutil
 
+MARKER_TOLERANCE = 3.
+
 main_wnd = None
 
 class InputList(object):

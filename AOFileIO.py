@@ -46,7 +46,7 @@ class ao_fileIO():
                     if row[0] == '#unchecked':
                         unchecked = [int(v) for v in row[1:]]
                         continue
-                    
+
                     is_meta = is_del = False
                     if row[0].startswith('#'):
                         if row[0] == '#meta':
@@ -55,7 +55,7 @@ class ao_fileIO():
                             is_del = True
                         else:
                             continue
-                        
+
                     if not cframe in res_pts:
                         res_pts[cframe] = MetaList(meta=MetaMap(MetaRecord(user='=Diskfile=')))
                     pts = res_pts[cframe]
@@ -78,15 +78,15 @@ class ao_fileIO():
                         except Exception as ex:
                             print(ex)
                         continue
-                        
+
                     pts.append([float(row[0]), float(row[1]), -0.001])
                 #
         except Exception as ex:
             if ignore_errors:
                 return {}
             raise
-        for pts in res_pts.values():
-            pts.meta.addmeta(MetaRecord(), setdefault=True)
+        # for pts in res_pts.values():
+        #     pts.meta.addmeta(MetaRecord(), setdefault=True)
         if unchecked:
             res_pts['unchecked'] = unchecked
         return res_pts
@@ -147,7 +147,7 @@ class ao_fileIO():
                     nextid += 1
             cnt += 1
         return cnt
-    
+
     #check if points in image coocrdinate or physical coordinate
     def is_annotation_spaced(self, pts, img):
         if len(pts) == 0:
@@ -200,9 +200,9 @@ class ao_fileIO():
 
 
 if __name__ == '__main__':
-    
+
     img_name = r'C:\MSC\SampleImages\sample_stack.tif'
     itk_img = sitk.ReadImage(img_name)
     print(dir(itk_img))
     print(itk_img.GetSize())
-    
+

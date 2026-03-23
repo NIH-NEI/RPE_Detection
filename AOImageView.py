@@ -21,7 +21,7 @@ class MouseOp(enum.IntEnum):
     Remove = 2
     Move = 3
     EraseMulti = 4
-    
+
 UndoEntry = namedtuple('UndoEntry', ['m_del', 'm_more', 'pt'])
 class UndoStack(object):
     ADD = 0
@@ -200,6 +200,7 @@ class SegmentClipper(object):
     #
 
 class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
+    zoom_factor = 1.5
     def __init__(self, mouse_mode = 0, parent=None):
         #self._win = platform.system().lower() == 'windows'
         self.AddObserver("LeftButtonPressEvent",self.leftButtonPressEvent)
@@ -212,6 +213,10 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
         self.AddObserver("KeyPressEvent", self.keyPressEvent)
         self.AddObserver("KeyReleaseEvent", self.keyReleaseEvent)
         self.AddObserver("CharEvent", self.charEvent)
+        if not parent is None:
+            self.AddObserver("MouseWheelForwardEvent", self.mouseWheelForwardEvent)
+            self.AddObserver("MouseWheelBackwardEvent", self.mouseWheelBackwardEvent)
+        self._picker = vtk.vtkPropPicker()
 
         self.parent = parent
         self.mainWin = None if self.parent is None else self.parent.parent
@@ -244,7 +249,112 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
         #
         self._undo_stack = UndoStack()
     #
+    def _pick_image_point(self, x, y):
+        """
+        Return world coordinates of the point on the image actor under
+        display position (x, y). Returns None if nothing is picked.
+        """
+        renderer = self.GetDefaultRenderer()
+        actor = self.parent._image_actor
 
+        if renderer is None:
+            return None
+
+        ok = self._picker.Pick(x, y, 0, renderer)
+        if not ok:
+            return None
+
+        return self._picker.GetPickPosition()
+    #
+    def _translate_camera(self, delta):
+        renderer = self.GetDefaultRenderer()
+        if renderer is None:
+            return
+
+        camera = renderer.GetActiveCamera()
+
+        fp = list(camera.GetFocalPoint())
+        pos = list(camera.GetPosition())
+
+        camera.SetFocalPoint(fp[0] + delta[0], fp[1] + delta[1], fp[2] + delta[2])
+        camera.SetPosition(pos[0] + delta[0], pos[1] + delta[1], pos[2] + delta[2])
+    #
+    def _zoom_about_mouse(self, forward=True):
+        interactor = self.GetInteractor()
+        renderer = self.GetDefaultRenderer()
+
+        if interactor is None or renderer is None:
+            return
+
+        camera = renderer.GetActiveCamera()
+        x, y = interactor.GetEventPosition()
+
+        # Pick before
+        p_before = self._pick_image_point(x, y)
+
+        # Zoom
+        new_scale = scale = camera.GetParallelScale()
+        if forward:
+            if scale > 2.:
+                new_scale = scale / MouseAnnotationInteractor.zoom_factor
+        else:
+            if scale < 1000.:
+                new_scale = scale * MouseAnnotationInteractor.zoom_factor
+
+        camera.SetParallelScale(new_scale)
+
+        # --- Compute whether image is "small" ---
+        actor = self.parent._image_actor
+        bounds = actor.GetBounds()  # (xmin,xmax, ymin,ymax, zmin,zmax)
+
+        img_width = bounds[1] - bounds[0]
+        img_height = bounds[3] - bounds[2]
+
+        # Visible height in world coords = 2 * ParallelScale
+        view_height = 2 * new_scale
+
+        # Aspect ratio correction for width
+        size = renderer.GetSize()
+        aspect = size[0] / size[1] if size[1] != 0 else 1.0
+        view_width = view_height * aspect
+
+        # Condition: image fits well inside viewport
+        if img_width < view_width * 0.25 and img_height < view_height * 0.25:
+            # --- Center image ---
+            cx = 0.5 * (bounds[0] + bounds[1])
+            cy = 0.5 * (bounds[2] + bounds[3])
+            cz = 0.5 * (bounds[4] + bounds[5])
+
+            fp = list(camera.GetFocalPoint())
+            pos = list(camera.GetPosition())
+
+            dx = cx - fp[0]
+            dy = cy - fp[1]
+            dz = cz - fp[2]
+
+            camera.SetFocalPoint(cx, cy, cz)
+            camera.SetPosition(pos[0] + dx, pos[1] + dy, pos[2] + dz)
+
+        else:
+            # --- Normal cursor-anchored behavior ---
+            p_after = self._pick_image_point(x, y)
+
+            if p_before is not None and p_after is not None:
+                delta = (
+                    p_before[0] - p_after[0],
+                    p_before[1] - p_after[1],
+                    p_before[2] - p_after[2],
+                )
+                self._translate_camera(delta)
+
+        interactor.Render()
+    #
+    def mouseWheelForwardEvent(self, obj, event):
+        self._zoom_about_mouse(forward=True)
+    #
+    def mouseWheelBackwardEvent(self, obj, event):
+        self._zoom_about_mouse(forward=False)
+    #
     @staticmethod
     def pt_dist(pt1, pt2):
         dx = pt1[0] - pt2[0]
@@ -272,7 +382,7 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
 
     def set_image_spacing(self, spacing):
         self._image_spacing = spacing
-        
+
     def reset_mouse_state(self):
         self._mouse_down = False
         self._ctrl_down = False
@@ -293,7 +403,7 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
 
     def set_annotations(self, pts):
         self._annotations = pts
-        
+
     def can_add(self, pick):
         for pt in self._annotations:
             if self.pt_dist(pt, pick) < self._tolerance:
@@ -304,7 +414,7 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
             if self.pt_dist(pt, pick) < delta:
                 return idx
         return -1
-    
+
     def closest_border(self, pt):
         pidx = 0
         x = 0.
@@ -430,7 +540,7 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
             QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.SizeAllCursor)
             obj.OnLeftButtonDown()
             return
-        
+
         self.img_dim = self.parent.get_image_dimensions()
         self.max_xpos = self.img_dim[0] - 0.5
         self.max_ypos = self.img_dim[1] - 0.5
@@ -442,7 +552,7 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
             op = MouseOp.Remove
             self._alt_down = True
             QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.CrossCursor)
-            
+
         mx, my = inter.GetEventPosition()
         pick_value = inter.GetPicker().Pick(mx, my, -0.001, self.GetDefaultRenderer())
         if op in (MouseOp.Add, MouseOp.Move, MouseOp.Remove, MouseOp.EraseMulti):
@@ -475,7 +585,7 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
                 self.last_pick_value = pick_value
                 self._contour_pts = [pick_pos]
                 dirty_cont = True
-            
+
             if dirty_ann:
                 self._update_annotations()
             if dirty_cont:
@@ -560,7 +670,7 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
                     if xpos > self.max_xpos: xpos = self.max_xpos
                     if ypos < 0.5: ypos = 0.5
                     if ypos > self.max_ypos: ypos = self.max_ypos
-                    
+
                     self._annotations[self.m_idx] = (xpos, ypos, -0.001)
                     self._update_annotations(False)
                 elif op == MouseOp.EraseMulti:
@@ -634,10 +744,10 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
         while QtWidgets.QApplication.overrideCursor():
             QtWidgets.QApplication.restoreOverrideCursor()
         key = self.GetInteractor().GetKeySym()
-        if key == 'Up':
+        if key == 'Up' or key == 'Left':
             cfg.main_wnd.previous_image()
             return
-        elif key == 'Down':
+        elif key == 'Down' or key == 'Right':
             cfg.main_wnd.next_image()
             return
         if not self._mouse_in:
@@ -656,7 +766,7 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
         while QtWidgets.QApplication.overrideCursor():
             QtWidgets.QApplication.restoreOverrideCursor()
         key = self.GetInteractor().GetKeySym()
-        if key == 'Up' or key == 'Down':
+        if key in ('Up', 'Down', 'Left', 'Right'):
             return
         if key == 'Alt_L':
             self._alt_down = False
@@ -678,12 +788,12 @@ class ao_visualization(object):
         self._voronoi_contour_width = 1.5
         self._glyph_size = 6
         self._gs = 1. if self.auto_tolerance else 0.5
-        
+
         self._min_color_level = -256.
         self._max_color_level = 512.
         self._min_color_window = 0.1
         self._max_color_window = 4096.
-        
+
         self._draw_annotations()
         self._draw_grayed()
         self._draw_interactive_contours()
@@ -704,14 +814,14 @@ class ao_visualization(object):
         self._style.SetDefaultRenderer(self._render)
         self._style.annotation_pts = self._annotated_points
         self._style.grayed_pts = self._grayed_points
-        self._style.tolerance = 3.
+        self._style.tolerance = cfg.MARKER_TOLERANCE
         #self._vtk_widget.SetInteractorStyle(vtk.vtkInteractorStyleImage())
         self._vtk_widget.SetInteractorStyle(self._style)
         iren = self._vtk_widget.GetRenderWindow().GetInteractor()
 
         iren.Initialize()
         iren.Start()
-        
+
         self._visibility = True
         self._glyph_visibility = True
         self._interpolation = True
@@ -845,7 +955,7 @@ class ao_visualization(object):
         self._voronoi_contour_points.Initialize()
         self._voronoi_contour_lines.Initialize()
         self._voronoi_contour_poly.Modified()
-        
+
         self._bkg_points.Initialize()
         self._bkg_cells.Initialize()
         self._bkg_poly.Modified()
@@ -865,7 +975,7 @@ class ao_visualization(object):
             self._change_camera_orientation()
             self._style.reset_mouse_state()
         self._vtk_widget.GetRenderWindow().Render()
-    #  
+    #
     def set_mouse_mode(self, mouse_mode):
         self._style.set_mouse_mode(mouse_mode)
     #
@@ -922,7 +1032,7 @@ class ao_visualization(object):
         self._bkg_points.Modified()
         self._bkg_cells.Modified()
         self._bkg_poly.Modified()
-        
+
     def get_image_dimensions(self):
         s = self._image_data.GetSpacing()
         d = self._image_data.GetDimensions()
@@ -942,7 +1052,7 @@ class ao_visualization(object):
                     norm_pts.append(pt)
         else:
             norm_pts = [pt for pt in pts]
-            
+
         if len(norm_pts) != 0:
             self._annotated_points.SetData(numpy_support.numpy_to_vtk(np.asarray(norm_pts)))
         if len(gray_pts) != 0:
@@ -951,10 +1061,10 @@ class ao_visualization(object):
         self._grayed_points.Modified()
         self._style._undo_stack.clear()
         self.update_voronoi_segments()
-        
+
     def is_undo_empty(self):
         return self._style._undo_stack.is_empty()
-    
+
     def undo(self):
         self._style.undo()
 

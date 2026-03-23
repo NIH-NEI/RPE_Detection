@@ -1,3 +1,9 @@
+#### Version 1.2.1 (2026-03-20) ####
+- Fixed bug with showing data file locations.
+- Left/Right arrow keys scroll across open images the same way as Up/Down.
+- The same set of annotations is displayed on all frames of a multi-frame stack.
+- Mouse wheel zooms in/out around the mouse point, rather than around the center of the image.
+
 #### Version 1.2.0 (2025-07-02) ####
 - Alt+Left Click in Add/Move mouse modes erases markers (instead of Ctrl+Left Click).
 
