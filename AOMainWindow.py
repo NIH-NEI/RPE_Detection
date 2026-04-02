@@ -1,5 +1,6 @@
 from __future__ import division
 import os, sys
+import datetime
 import json
 import math
 from collections import defaultdict
@@ -246,6 +247,13 @@ class EnterListWidget(QtWidgets.QListWidget):
         else:
             super().keyPressEvent(event)
 #
+
+def _format_td(td):
+    mksecs = int(td.microseconds / 100000.)
+    secs = int(td.seconds)
+    mins, secs = divmod(secs, 60)
+    hrs, mins = divmod(mins, 60)
+    return '%02d:%02d:%02d.%d' % (hrs, mins, secs, mksecs)
 
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self, parent=None):
@@ -1048,6 +1056,7 @@ class MainWindow(QtWidgets.QMainWindow):
         if mw is None:
             display_error('Input errors', 'Missing Detection Model Weights!')
             return
+        start_ts = datetime.datetime.now()
         method, weights = mw
         self._status_bar.showMessage('Using Detection Model Weights from: '+weights)
 
@@ -1074,6 +1083,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 'clustering_radius': self._detection_para_dlg.clustering_radius,
             }
 
+            _det_start_time = datetime.datetime.now()
             o = imdat.itk_img.GetOrigin()
             s = imdat.itk_img.GetSpacing()
             aa_src = {}
@@ -1095,8 +1105,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 progr_cur += 1
                 self._progress_dlg.set_progress(float(progr_cur)/float(progr_total) * 100.)
                 QtWidgets.QApplication.processEvents(QtCore.QEventLoop.ExcludeUserInputEvents)
+            _det_elapsed = datetime.datetime.now() - _det_start_time
 
             aa = {}
+            kwarg['proc_time'] = _format_td(_det_elapsed)
             for fr, src_pts in aa_src.items():
                 mc = MetaList(src_pts, meta=MetaMap(MetaRecord(**kwarg)))
                 #mc.meta.addmeta(MetaRecord(), setdefault=True)
@@ -1117,6 +1129,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._progress_dlg.hide()
         self._image_view.visibility = True
         self._sync_display_controls()
+        elapsed = datetime.datetime.now() - start_ts
+        self.status(f'Processed {len(c_rows)} images in {_format_td(elapsed)}')
 
     def _save_data(self):
         if len(self._input_data) == 0: return
