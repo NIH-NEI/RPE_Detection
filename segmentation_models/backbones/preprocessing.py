@@ -3,11 +3,13 @@ Image pre-processing functions.
 Images are assumed to be read in uint8 format (range 0-255).
 """
 
-from keras.applications import vgg16
-from keras.applications import vgg19
-from keras.applications import densenet
-from keras.applications import inception_v3
-from keras.applications import inception_resnet_v2
+from tensorflow.keras.applications import (
+    vgg16,
+    vgg19,
+    densenet,
+    inception_v3,
+    inception_resnet_v2,
+)
 
 identical = lambda x: x
 

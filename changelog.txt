@@ -1,3 +1,6 @@
+#### Version 1.2.2 (2026-05-11) ####
+- Migrated to Python 3.12 / TensorFlow 2.x
+
 #### Version 1.2.1 (2026-04-01) ####
 - Overall timing of the detection operation in the status line, individual timings, in Annotation Sources.
 - Fixed bug with showing data file locations.

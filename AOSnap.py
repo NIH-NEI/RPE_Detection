@@ -367,11 +367,11 @@ class ao_snap_dialog(QtWidgets.QDialog):
             'glyph_visibility': False,
             'glyph_size': 6.,
             'glyph_color': '#00ff00',
-            
+
             'voronoi': False,
             'voronoi_width': 1.5,
             'voronoi_color': '#05c4c4',
-            
+
             'interpolation': True,
             'image_visibility': True,
             'background_color': '#000000',
@@ -486,7 +486,7 @@ class ao_snap_dialog(QtWidgets.QDialog):
         else:
             self.centers = [(x[0], x[1]) for x in points]
         self.voronoi_segments = []
-                
+
         if len(self.centers) > 2:
             clip = SegmentClipper((self.qImg.width(), self.qImg.height()))
             annos = self.centers + clip.bnd_points()
@@ -518,7 +518,7 @@ class ao_snap_dialog(QtWidgets.QDialog):
     def _scaled_glyph_poly(self, sc):
         sp = 1. if not self.img_spacing else self.glyph_scale/self.img_spacing[0]
         sc = sc * self.glyph_size * 0.1*sp
-        return QtGui.QPolygon([QtCore.QPoint(x*sc, y*sc) for x, y in self.GLYPH_COORD])
+        return QtGui.QPolygon([QtCore.QPoint(int(x*sc), int(y*sc)) for x, y in self.GLYPH_COORD])
     #
     def resizeEvent(self, e):
         if not hasattr(self, 'qImg') or self.qImg is None:
@@ -538,7 +538,7 @@ class ao_snap_dialog(QtWidgets.QDialog):
     #
     def generateScaledPixmap(self, sc):
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
-        
+
         if self.image_visibility:
             scImg = self.qImg.scaled(int(self.qImg.width()*sc), int(self.qImg.height()*sc),
                     transformMode=QtCore.Qt.SmoothTransformation if self.interpolation else QtCore.Qt.FastTransformation)
@@ -558,16 +558,16 @@ class ao_snap_dialog(QtWidgets.QDialog):
             painter.setPen(QtGui.QPen(color, 1, QtCore.Qt.SolidLine))
             painter.setBrush(QtGui.QBrush(color, QtCore.Qt.SolidPattern))
             for x, y in self.centers:
-                poly = glyph.translated(x*sc, y*sc)
+                poly = glyph.translated(int(x*sc), int(y*sc))
                 painter.drawPolygon(poly)
         # Voronoi diagram
-        if self.voronoi:   
+        if self.voronoi:
             color = QtGui.QColor(self.voronoi_color)
             painter.setPen(QtGui.QPen(color, self.voronoi_width * sc * 0.5, QtCore.Qt.SolidLine))
             for seg in self.voronoi_segments:
                 x1, y1 = seg[0]
                 x2, y2 = seg[1]
-                painter.drawLine(x1*sc, y1*sc, x2*sc, y2*sc)
+                painter.drawLine(int(x1*sc), int(y1*sc), int(x2*sc), int(y2*sc))
         #
         painter.end()
         QtWidgets.QApplication.restoreOverrideCursor()
@@ -597,7 +597,7 @@ class ao_snap_dialog(QtWidgets.QDialog):
         w = int(self.out_scale * self.qImg.width())
         h = int(self.out_scale * self.qImg.height())
         outfn = f'{bn}-({w},{h}).png'
-    
+
         fpath = os.path.join(cdir, outfn)
         file_dialog = QtWidgets.QFileDialog(self)
         file_dialog.setNameFilters(["PNG Images (*.png)", "All files (*.*)"])
@@ -608,13 +608,13 @@ class ao_snap_dialog(QtWidgets.QDialog):
         file_dialog.setWindowFilePath(fpath)
         file_dialog.setDirectory(cdir)
         file_dialog.selectFile(outfn)
-    
+
         if not file_dialog.exec_():
             return
         pkl_filenames = file_dialog.selectedFiles()
         if len(pkl_filenames) < 1:
             return
-    
+
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
         try:
             pixmap = self.generateScaledPixmap(self.out_scale)

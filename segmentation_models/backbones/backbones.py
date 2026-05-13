@@ -1,7 +1,11 @@
 
-from keras.applications import DenseNet121, DenseNet169, DenseNet201
-from keras.applications import VGG16
-from keras.applications import VGG19
+from tensorflow.keras.applications import (
+    DenseNet121,
+    DenseNet169,
+    DenseNet201,
+    VGG16,
+    VGG19,
+)
 
 
 backbones = {

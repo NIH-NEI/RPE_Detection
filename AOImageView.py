@@ -462,9 +462,9 @@ class MouseAnnotationInteractor(vtk.vtkInteractorStyleImage):
                     norm_pts.append(pt)
         else:
             norm_pts = [pt for pt in self._annotations]
-        if len(norm_pts) is not 0:
+        if len(norm_pts) != 0:
             self._annotation_pts.SetData(numpy_support.numpy_to_vtk(np.asarray(norm_pts)))
-        if len(gray_pts) is not 0:
+        if len(gray_pts) != 0:
             self._grayed_pts.SetData(numpy_support.numpy_to_vtk(np.asarray(gray_pts)))
         self._annotation_pts.Modified()
         self._grayed_pts.Modified()

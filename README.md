@@ -1,7 +1,7 @@
 # RPE Detection
-#### A software package for identifying RPE cells in non-confocal adaptive optics images, using pre-trained A-GAN machine learning model and manual editing.
+#### A software package for identifying retinal pigment epithelial (RPE) cells in adaptive optics images, using spatially aware dense-LinkNet based regression machine learning model and manual editing.
 
-*Jianfei Liu (NEI/NIH), Andrei Volkov (NEI/NIH Contractor), and Johnny Tam (NEI/NIH), with research support from the Intramural Research Program of the National Institutes of Health.*
+*If any portion of this code is used, please cite the following paper in your publication:*
 
 ### BibTeX
 
@@ -15,11 +15,52 @@
 		pages={3520-3528},
 		doi={10.1109/JBHI.2020.3004271}}
 
-<img src="assets/app_main.png" width="612" height="360" />
-
 ---------------
 
-## Setting up development environment
+## Getting Started
+
+There are two ways to use the software:
+
+- Option 1: Run using prebuilt executables (No installation required)
+- Option 2: Install Dependencies and Run from Source
+
+## Option 1: Run using prebuilt executables
+
+1. Download the executable file (`.exe` for Windows and `.dmg` for macOS) from the **Releases** section with the Latest tag.
+
+2. On Windows systems, installation can be completed by double-clicking the `.exe` file and following the on-screen prompts. For Mac OS, the `.dmg` is a Mac OS disk image file. When opened, it asks for accepting the license agreement, then mounts itself as an external drive and opens a Finder window, that looks like this:
+
+   <img src="assets/macinstall.png" />
+
+   You can run the app by double-clicking on the icon, or copying it to your Applications folder by dragging the icon over "Applications". Once RPE_Detection is in your Applications folder, you can eject the *RPE_Detection* disk, and delete the `.dmg` file.
+
+3. Once installed, double click on the software icon to open the software.
+
+   <img src="assets/RPEDetect1.png"/>
+
+4. Click on the **Open** button, to load the input RPE image.
+
+   <img src="assets/RPEDetectOpen2.png"/>
+
+5. Then click on the **Detect** button to automatically detect the RPE cells.
+
+   <img src="assets/RPEDetectbutton3.png"/>
+
+6. The **Mark**, **Erase S**, **Erase M** and **Undo** buttons allow to add annotations, erase single/multiple annotations and undo past operation.
+
+7. The **Settings** tab provides options to display the centroids of the RPE cells and the Voronoi map.
+
+   <img src="assets/RPEDetectDisplaySetting4.png"/>
+
+   <img src="assets/RPEDetectVoronoi5.png"/>
+
+8. The **Save** button saves the `.csv` file with the (x,y) coordinates of the RPE cell centroids in the location of the input image.
+
+9. The **Help** button provides more documentation about the software features including a table of keyboard shortcuts for common actions.
+
+## Option 2: Install Dependencies and Run from Source
+
+### Setting up development environment
 
 1. Download and install [Miniconda](https://docs.conda.io/en/latest/miniconda.html) or [Anaconda](https://www.anaconda.com/products/individual).
 
@@ -29,13 +70,13 @@
 
 4. Create Conda Virtual Environment (do this once, next time skip to the next step):
 
-	`conda env create --file conda-environment-win.yml` (Windows)
+    `conda env create --file conda-environment.yml`
 
-	`conda env create --file conda-environment-mac.yml` (Mac OS)
-   
+_**Note** The Conda Virtual Environment is shared between projects [ConeDetectionML](https://github.com/NIH-NEI/ConeDetectionML) and [RPE_Detection](https://github.com/NIH-NEI/RPE_Detection). If you have already created it for one of these projects, skip this step._
+
 5. Activate the Virtual Environment:
 
-	`conda activate RPE_Detection`
+    `conda activate AO_Detection`
    
 6. Start the application:
 
@@ -53,7 +94,7 @@ In MacOS systems, you can build a Mac application instead:
 
 The result is `<prefix>/RPE_Detection/dist/RPE_Detection.app`.
 
-## Creating Windows installer using NSIS
+### Creating Windows installer using NSIS
 
 1. Download and install [NSIS](https://nsis.sourceforge.io/Download) if you don't have it already.
 
@@ -98,7 +139,7 @@ You can run the app by double-clicking on the icon, or copy it to your Applicati
 
 ---------------
 
-## Deleting Conda Virtual Environment
+### Deleting Conda Virtual Environment
 
 To delete the Virtual environment at the Conda prompt, deactivate it first if it is active:
 
@@ -106,5 +147,4 @@ To delete the Virtual environment at the Conda prompt, deactivate it first if it
 
 then type:
 
-`conda remove --name RPE_Detection`
-   
+`conda remove --name AO_Detection`

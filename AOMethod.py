@@ -1,15 +1,11 @@
 from skimage.transform import resize
-import keras
-from keras.models import Model
-from keras.layers import Input, add, concatenate, Conv2D, MaxPooling2D, Conv2DTranspose, BatchNormalization, Dropout
-from keras.layers.advanced_activations import LeakyReLU
-from keras import backend as K
 import tensorflow as tf
 from skimage.transform import resize
 import os
 import numpy as np
 import SimpleITK as sitk
 import numbers
+import multiprocessing as mp
 # import matplotlib.pyplot as plt
 import scipy.cluster.hierarchy as hcluster
 from pathlib import Path
@@ -23,13 +19,16 @@ except AttributeError:
 from segmentation_models import Linknet
 from segmentation_models.backbones import backbones as smbb
 
-import multiprocessing as mp
+# Replace the old tf.ConfigProto/tf.Session block. TF2 uses eager execution by default.
 core_num = mp.cpu_count()
-config = tf.ConfigProto(
-    inter_op_parallelism_threads=core_num,
-    intra_op_parallelism_threads=core_num)
-config.gpu_options.allow_growth = True
-sess = tf.Session(config=config)
+tf.config.threading.set_inter_op_parallelism_threads(core_num)
+tf.config.threading.set_intra_op_parallelism_threads(core_num)
+for gpu in tf.config.list_physical_devices("GPU"):
+    try:
+        tf.config.experimental.set_memory_growth(gpu, True)
+    except RuntimeError:
+        # Memory growth must be set before GPU initialization; ignore if already initialized.
+        pass
 
 training_img_rows = 256
 training_img_cols = 256
@@ -73,7 +72,7 @@ class ao_method():
             # --onefile : special case for single exe : handle model_weight_dir not relative to current dir
             _model_weight_dir = os.path.join(MODEL_WEIGHTS_BASE, model_weight_dir)
             skip = len(Path(MODEL_WEIGHTS_BASE).parts)
-        
+
         model_files = os.listdir(_model_weight_dir)
         model_dictionary = {}
         if len(model_files) == 0:
@@ -179,7 +178,7 @@ class ao_method():
     def compute_probablity_map(self, img, normalized_imgs):
         input_img_size = img.GetSize()
 
-        res_imgs = self._rpe_detection_model.predict(normalized_imgs, verbose=1)
+        res_imgs = self._rpe_detection_model.predict(normalized_imgs, verbose=0)
 
         if res_imgs.shape[-1] == 1:
             res_imgs = np.squeeze(res_imgs, axis=-1)
@@ -274,7 +273,7 @@ class ao_method():
 
                 xpos = img_origin[0] + (xpos - img_origin[0]) / fov_ratio
                 ypos = img_origin[1] + (ypos - img_origin[1]) / fov_ratio
-                pt = (xpos, ypos)
+                pt = (float(xpos), float(ypos))
                 detection_res.append(pt)
         return detection_res
 

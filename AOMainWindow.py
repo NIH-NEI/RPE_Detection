@@ -315,15 +315,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self._status_bar.addPermanentWidget(self.mposText, 0)
 
         self._detection_para_dlg = ao_parameter_dialog(self)
-        self._detection_para_dlg.setMinimumSize(geom.width()/5, geom.height()/3)
+        self._detection_para_dlg.setMinimumSize(geom.width()//5, geom.height()//3)
         self._display_settings_dlg = ao_display_settings(None, contour_settings=False)
         self._display_settings_dlg.changed.connect(self._on_display_settings)
         self._progress_dlg = ao_progress_dialog(self)
-        self._progress_dlg.setMinimumWidth(geom.width()/5)
+        self._progress_dlg.setMinimumWidth(geom.width()//5)
         self._file_io = AOFileIO.ao_fileIO()
         self._detection = AOMethod.ao_method()
         self._data_loc_dlg = ao_loc_dialog(self)
-        self._data_loc_dlg.setMinimumWidth(geom.width()/2)
+        self._data_loc_dlg.setMinimumWidth(geom.width()//2)
 
         self._action_map = self.actionMap()
         self._default_key_map = self.hotkeys
@@ -895,7 +895,7 @@ class MainWindow(QtWidgets.QMainWindow):
         file_dialog.exec()
 
         csv_filenames = file_dialog.selectedFiles()
-        if len(csv_filenames) is not 0:
+        if len(csv_filenames) != 0:
             self.saveDir = file_dialog.directory()
             self.saveState()
             if display_warning("Replace annotations", "Do you want to load annotations to replace current ones?")\

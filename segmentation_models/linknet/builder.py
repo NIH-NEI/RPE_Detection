@@ -1,6 +1,6 @@
-from keras.layers import Conv2D
-from keras.layers import Activation
-from keras.models import Model
+
+from tensorflow.keras.layers import Conv2D, Activation
+from tensorflow.keras.models import Model
 
 from .blocks import DecoderBlock
 from ..utils import get_layer_number, to_tuple

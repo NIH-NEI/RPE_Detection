@@ -1,10 +1,12 @@
-import keras.backend as K
-from keras.layers import Conv2DTranspose as Transpose
-from keras.layers import UpSampling2D
-from keras.layers import Conv2D
-from keras.layers import BatchNormalization
-from keras.layers import Activation
-from keras.layers import Add
+import tensorflow.keras.backend as K
+from tensorflow.keras.layers import Conv2DTranspose as Transpose
+from tensorflow.keras.layers import (
+    UpSampling2D,
+    Conv2D,
+    BatchNormalization,
+    Activation,
+    Add,
+)
 
 def handle_block_names(stage):
     conv_name = 'decorder_stage{}_conv'.format(stage)

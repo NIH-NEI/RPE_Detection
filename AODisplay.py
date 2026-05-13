@@ -3,9 +3,10 @@ import os, sys
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 class AoColorButton(QtWidgets.QPushButton):
-    def __init__(self, onchange=None):
+    def __init__(self, onchange=None, parent=None):
         super(AoColorButton, self).__init__()
         self.onchange = onchange
+        self.parent = parent
         #
         self.setStyleSheet('margin: 0; padding: 4 4 4 4;')
         self._color = QtGui.QColor(0, 0xFF, 0)
@@ -43,7 +44,15 @@ class AoColorButton(QtWidgets.QPushButton):
         self.updateIcon()
     #
     def onclick(self):
+        if not self.parent is None:
+            save_win_flags = self.parent.windowFlags()
+            if save_win_flags & QtCore.Qt.WindowStaysOnTopHint:
+                self.parent.setWindowFlags(save_win_flags & ~QtCore.Qt.WindowStaysOnTopHint)
         color = QtWidgets.QColorDialog.getColor(self.color)
+        if not self.parent is None:
+            if save_win_flags & QtCore.Qt.WindowStaysOnTopHint:
+                self.parent.setWindowFlags(save_win_flags)
+                self.parent.show()
         if color.isValid():
             self.color = color
             if not self.onchange is None:
@@ -55,12 +64,12 @@ class ao_display_settings(QtWidgets.QWidget):
     def __init__(self, parent=None, contour_settings=True, onclose=None):
         super(ao_display_settings, self).__init__(parent)
         self.contour_settings = contour_settings
-        
+
         flags = self.windowFlags() | QtCore.Qt.WindowStaysOnTopHint
         flags &= ~QtCore.Qt.WindowContextHelpButtonHint
         self.setWindowFlags(flags)
         self.setAutoFillBackground(True)
-        
+
         #self.setSizeGripEnabled(False)
         self.setWindowTitle('Display Settings')
         #
@@ -113,7 +122,7 @@ class ao_display_settings(QtWidgets.QWidget):
             contLayout.addWidget(self.spContWidth, 1, 1, 1, 2)
             lbContColor = QtWidgets.QLabel('Color:')
             contLayout.addWidget(lbContColor, 2, 0)
-            self.btContColor = AoColorButton(onchange=lambda x: self.handleChange())
+            self.btContColor = AoColorButton(onchange=lambda x: self.handleChange(), parent=self)
             contLayout.addWidget(self.btContColor, 2, 2)
         #
         self.cbGlyphVisible = QtWidgets.QCheckBox('Visible', stateChanged=lambda x: self.handleChange())
@@ -128,7 +137,7 @@ class ao_display_settings(QtWidgets.QWidget):
         glyphLayout.addWidget(self.spGlyphWidth, 1, 1, 1, 2)
         lbGlyphColor = QtWidgets.QLabel('Color:')
         glyphLayout.addWidget(lbGlyphColor, 2, 0)
-        self.btGlyphColor = AoColorButton(onchange=lambda x: self.handleChange())
+        self.btGlyphColor = AoColorButton(onchange=lambda x: self.handleChange(), parent=self)
         glyphLayout.addWidget(self.btGlyphColor, 2, 2)
         #
         self.cbVoronoiVisible = QtWidgets.QCheckBox('Visible', stateChanged=lambda x: self.handleChange())
@@ -143,7 +152,7 @@ class ao_display_settings(QtWidgets.QWidget):
         voronoiLayout.addWidget(self.spVoronoiWidth, 1, 1, 1, 2)
         lbVoronoiColor = QtWidgets.QLabel('Color:')
         voronoiLayout.addWidget(lbVoronoiColor, 2, 0)
-        self.btVoronoiColor = AoColorButton(onchange=lambda x: self.handleChange())
+        self.btVoronoiColor = AoColorButton(onchange=lambda x: self.handleChange(), parent=self)
         voronoiLayout.addWidget(self.btVoronoiColor, 2, 2)
         #
         self.cbPix = QtWidgets.QCheckBox('Pixel Interpolation', stateChanged=lambda x: self.handleChange())
@@ -153,7 +162,7 @@ class ao_display_settings(QtWidgets.QWidget):
         imageLayout.addWidget(self.cbImageVisible, 0, 1)
         lbBkgColor = QtWidgets.QLabel('Background:')
         imageLayout.addWidget(lbBkgColor, 0, 2)
-        self.btBkgColor = AoColorButton(onchange=lambda x: self.handleChange())
+        self.btBkgColor = AoColorButton(onchange=lambda x: self.handleChange(), parent=self)
         self.btBkgColor.color = '#000000'
         imageLayout.addWidget(self.btBkgColor, 0, 3)
         #
@@ -193,11 +202,11 @@ class ao_display_settings(QtWidgets.QWidget):
             'glyph_visibility': self.cbGlyphVisible.isChecked(),
             'glyph_size': self.spGlyphWidth.value(),
             'glyph_color': self.btGlyphColor.color.name(),
-            
+
             'voronoi': self.cbVoronoiVisible.isChecked(),
             'voronoi_width': self.spVoronoiWidth.value(),
             'voronoi_color': self.btVoronoiColor.color.name(),
-            
+
             'interpolation': self.cbPix.isChecked(),
             'image_visibility': self.cbImageVisible.isChecked(),
             'background_color': self.btBkgColor.color.name(),
