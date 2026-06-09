@@ -46,7 +46,7 @@ There are two ways to use the software:
 
    <img src="assets/RPEDetectbutton3.png"/>
 
-6. The **Mark**, **Erase S**, **Erase M** and **Undo** buttons allow to add annotations, erase single/multiple annotations and undo past operation.
+6. The **Add**, **Erase S**, **Erase M** and **Undo** buttons allow to add annotations, erase single/multiple annotations and undo past operation.
 
 7. The **Settings** tab provides options to display the centroids of the RPE cells and the Voronoi map.
 
